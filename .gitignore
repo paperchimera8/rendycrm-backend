@@ -7,3 +7,5 @@ coverage/
 apps/web/node_modules/
 
 /api
+!.env
+!deploy/.env
