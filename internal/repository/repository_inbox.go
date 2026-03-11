@@ -669,7 +669,7 @@ func (r *Repository) OperatorBotSettings(ctx context.Context, workspaceID, userI
 		LIMIT 1
 	`, userID, workspaceID).Scan(&pending.ID, &pending.UserID, &pending.WorkspaceID, &pending.Code, &pending.ExpiresAt)
 	if err == nil {
-		pending.DeepLink = fmt.Sprintf("https://t.me/%s?start=%s", strings.TrimPrefix(botUsername, "@"), pending.Code)
+		pending.DeepLink = fmt.Sprintf("https://t.me/%s?start=%s", strings.TrimPrefix(settings.BotUsername, "@"), pending.Code)
 		settings.PendingLink = &pending
 	} else if !errors.Is(err, sql.ErrNoRows) {
 		return OperatorBotSettings{}, err

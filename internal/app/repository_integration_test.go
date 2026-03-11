@@ -527,6 +527,49 @@ func TestOperatorBotLinkLifecycle(t *testing.T) {
 	}
 }
 
+func TestOperatorBotSettingsUsesSavedBotUsernameForPendingLink(t *testing.T) {
+	repo, db, workspaceID, _, cleanup := newIntegrationRepository(t, "Europe/Moscow")
+	defer cleanup()
+
+	if _, err := db.ExecContext(context.Background(), `
+		INSERT INTO users (id, email, password_hash, name, status)
+		VALUES ('usr_test', 'operator@test.local', $1, 'Operator', 'active')
+	`, hashToken("password")); err != nil {
+		t.Fatalf("seed user: %v", err)
+	}
+	if _, err := db.ExecContext(context.Background(), `
+		INSERT INTO workspace_members (id, workspace_id, user_id, role)
+		VALUES ('wsm_test', $1, 'usr_test', 'admin')
+	`, workspaceID); err != nil {
+		t.Fatalf("seed workspace member: %v", err)
+	}
+	if _, err := db.ExecContext(context.Background(), `
+		INSERT INTO channel_accounts (
+			id, workspace_id, provider, channel_kind, account_scope, account_name, external_account_id, webhook_secret, connected, is_enabled, bot_username
+		)
+		VALUES ($1, $2, 'telegram', 'telegram_operator', 'workspace', 'Telegram operator bot', 'tg-operator', 'operator-secret', TRUE, TRUE, 'rendycrmoperatorbot')
+	`, "cha_operator_test", workspaceID); err != nil {
+		t.Fatalf("seed operator channel account: %v", err)
+	}
+
+	link, err := repo.CreateOperatorLinkCode(context.Background(), workspaceID, "usr_test", "rendycrm_operator_bot")
+	if err != nil {
+		t.Fatalf("create operator link code: %v", err)
+	}
+
+	settings, err := repo.OperatorBotSettings(context.Background(), workspaceID, "usr_test", "rendycrm_operator_bot", "http://127.0.0.1:8080")
+	if err != nil {
+		t.Fatalf("operator bot settings: %v", err)
+	}
+	if settings.PendingLink == nil {
+		t.Fatalf("expected pending link in settings")
+	}
+	expected := "https://t.me/rendycrmoperatorbot?start=" + link.Code
+	if settings.PendingLink.DeepLink != expected {
+		t.Fatalf("expected pending link %q, got %q", expected, settings.PendingLink.DeepLink)
+	}
+}
+
 func newIntegrationRepository(t *testing.T, timezone string) (*Repository, *sql.DB, string, string, func()) {
 	t.Helper()
 	if os.Getenv("RUN_INTEGRATION_TESTS") != "1" {
