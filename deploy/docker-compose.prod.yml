@@ -11,6 +11,11 @@ services:
       - "127.0.0.1:5432:5432"
     networks:
       - rendycrm
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
     restart: unless-stopped
 
   redis:
@@ -21,6 +26,11 @@ services:
       - "127.0.0.1:6379:6379"
     networks:
       - rendycrm
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
     restart: unless-stopped
 
   api:
@@ -37,6 +47,13 @@ services:
       APP_ENCRYPTION_SECRET: ${APP_ENCRYPTION_SECRET:-change-me-in-production}
       ENABLE_DEMO_SEED: ${ENABLE_DEMO_SEED:-true}
     depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    dns:
+      - 127.0.0.11
+    links:
       - postgres
       - redis
     networks:
@@ -50,3 +67,8 @@ volumes:
 networks:
   rendycrm:
     driver: bridge
+    driver_opts:
+      com.docker.network.bridge.name: br-rendycrm
+    ipam:
+      config:
+        - subnet: 172.25.0.0/16
