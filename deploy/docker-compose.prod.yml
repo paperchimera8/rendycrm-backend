@@ -9,11 +9,6 @@ services:
       - postgres_data:/var/lib/postgresql/data
     networks:
       - rendycrm
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres -d rendycrm"]
-      interval: 5s
-      timeout: 5s
-      retries: 10
     restart: unless-stopped
 
   redis:
@@ -22,11 +17,6 @@ services:
       - redis_data:/data
     networks:
       - rendycrm
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 5s
-      timeout: 5s
-      retries: 10
     restart: unless-stopped
 
   api:
@@ -43,12 +33,9 @@ services:
       APP_ENCRYPTION_SECRET: ${APP_ENCRYPTION_SECRET:-change-me-in-production}
       ENABLE_DEMO_SEED: ${ENABLE_DEMO_SEED:-true}
     depends_on:
-      postgres:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-    dns:
-      - 127.0.0.11
+      - postgres
+      - redis
+    dns: 127.0.0.11
     networks:
       - rendycrm
     restart: unless-stopped
