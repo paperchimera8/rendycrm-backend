@@ -37,13 +37,15 @@ services:
     build:
       context: ..
       dockerfile: Dockerfile
+    env_file:
+      - .env
     ports:
-      - "${PORT:-8080}:8080"
+      - "${PORT:-3000}:3000"
     environment:
-      PORT: "8080"
+      PORT: "3000"
       POSTGRES_DSN: postgres://postgres:${POSTGRES_PASSWORD:-postgres}@postgres:5432/rendycrm?sslmode=disable
       REDIS_ADDR: redis:6379
-      PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-http://localhost:8080}
+      PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-http://localhost:3000}
       APP_ENCRYPTION_SECRET: ${APP_ENCRYPTION_SECRET:-change-me-in-production}
       ENABLE_DEMO_SEED: ${ENABLE_DEMO_SEED:-true}
     depends_on:
