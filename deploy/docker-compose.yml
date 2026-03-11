@@ -6,8 +6,6 @@ services:
       POSTGRES_DB: rendycrm
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
-    ports:
-      - "127.0.0.1:5432:5432"
     networks:
       rendycrm:
         ipv4_address: 172.25.0.2
@@ -21,8 +19,6 @@ services:
   redis:
     image: redis:7
     container_name: rendycrm-redis
-    ports:
-      - "127.0.0.1:6379:6379"
     networks:
       rendycrm:
         ipv4_address: 172.25.0.3
@@ -39,12 +35,12 @@ services:
       dockerfile: Dockerfile
     container_name: rendycrm-api
     ports:
-      - "${PORT:-8080}:8080"
+      - "${PORT:-3000}:3000"
     environment:
-      PORT: "8080"
+      PORT: "3000"
       POSTGRES_DSN: postgres://postgres:${POSTGRES_PASSWORD:-postgres}@172.25.0.2:5432/rendycrm?sslmode=disable
       REDIS_ADDR: 172.25.0.3:6379
-      PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-http://localhost:8080}
+      PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-http://localhost:3000}
       APP_ENCRYPTION_SECRET: ${APP_ENCRYPTION_SECRET:-change-me-in-production}
       ENABLE_DEMO_SEED: ${ENABLE_DEMO_SEED:-true}
     depends_on:
