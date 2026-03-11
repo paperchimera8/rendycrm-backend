@@ -1,6 +1,10 @@
 package app
 
 import (
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 )
@@ -36,5 +40,25 @@ func TestComputeAvailableSlotsRoundsUpAfterPartialBooking(t *testing.T) {
 		if slot.Start.Hour() == 12 {
 			t.Fatalf("expected 12:00-13:00 slot to be blocked, got %s-%s", slot.Start, slot.End)
 		}
+	}
+}
+
+func TestHandleAppServesIndexFallback(t *testing.T) {
+	tmpDir := t.TempDir()
+	indexPath := filepath.Join(tmpDir, "index.html")
+	if err := os.WriteFile(indexPath, []byte("<html>ok</html>"), 0o644); err != nil {
+		t.Fatalf("write index: %v", err)
+	}
+	server := &Server{cfg: Config{StaticDir: tmpDir}}
+
+	request := httptest.NewRequest(http.MethodGet, "/settings", nil)
+	recorder := httptest.NewRecorder()
+	server.handleApp(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", recorder.Code)
+	}
+	if body := recorder.Body.String(); body != "<html>ok</html>" {
+		t.Fatalf("unexpected body: %q", body)
 	}
 }

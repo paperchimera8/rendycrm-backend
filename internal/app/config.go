@@ -10,6 +10,7 @@ import (
 
 type Config struct {
 	Port                string
+	StaticDir           string
 	PostgresDSN         string
 	RedisAddr           string
 	RedisPassword       string
@@ -29,6 +30,7 @@ type Config struct {
 func LoadConfig() Config {
 	return Config{
 		Port:                envOrDefault("PORT", "8080"),
+		StaticDir:           envOrDefault("STATIC_DIR", ""),
 		PostgresDSN:         envOrDefault("POSTGRES_DSN", "postgres://postgres:postgres@127.0.0.1:55432/rendycrm?sslmode=disable"),
 		RedisAddr:           envOrDefault("REDIS_ADDR", "127.0.0.1:56379"),
 		RedisPassword:       os.Getenv("REDIS_PASSWORD"),
