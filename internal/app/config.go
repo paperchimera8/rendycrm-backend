@@ -32,7 +32,7 @@ func LoadConfig() Config {
 	loadDotEnv(".env")
 
 	return Config{
-		Port:                envOrDefault("PORT", "8080"),
+		Port:                envOrDefault("PORT", "3000"),
 		StaticDir:           envOrDefault("STATIC_DIR", ""),
 		PostgresDSN:         envOrDefault("POSTGRES_DSN", "postgres://postgres:postgres@postgres:5432/rendycrm?sslmode=disable"),
 		RedisAddr:           envOrDefault("REDIS_ADDR", "redis:6379"),
@@ -42,7 +42,7 @@ func LoadConfig() Config {
 		EventsChannel:       envOrDefault("REDIS_EVENTS_CHANNEL", "rendycrm:events"),
 		JobsQueue:           envOrDefault("REDIS_JOBS_QUEUE", "rendycrm:jobs"),
 		MigrationsPath:      envOrDefault("MIGRATIONS_PATH", filepath.Join("migrations")),
-		PublicBaseURL:       envOrDefault("PUBLIC_BASE_URL", "http://127.0.0.1:8080"),
+		PublicBaseURL:       envOrDefault("PUBLIC_BASE_URL", "http://127.0.0.1:3000"),
 		OperatorBotUsername: envOrDefault("TELEGRAM_OPERATOR_BOT_USERNAME", "rendycrm_operator_bot"),
 		TelegramAPIBaseURL:  envOrDefault("TELEGRAM_API_BASE_URL", "https://api.telegram.org"),
 		EncryptionSecret:    strings.TrimSpace(os.Getenv("APP_ENCRYPTION_SECRET")),
