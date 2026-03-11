@@ -1,0 +1,73 @@
+services:
+  postgres:
+    image: postgres:16
+    container_name: rendycrm-postgres
+    environment:
+      POSTGRES_DB: rendycrm
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "127.0.0.1:5432:5432"
+    networks:
+      rendycrm:
+        ipv4_address: 172.25.0.2
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  redis:
+    image: redis:7
+    container_name: rendycrm-redis
+    volumes:
+      - redis_data:/data
+    ports:
+      - "127.0.0.1:6379:6379"
+    networks:
+      rendycrm:
+        ipv4_address: 172.25.0.3
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    restart: unless-stopped
+
+  api:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    container_name: rendycrm-api
+    ports:
+      - "${PORT:-8080}:8080"
+    environment:
+      PORT: "8080"
+      POSTGRES_DSN: postgres://postgres:${POSTGRES_PASSWORD:-postgres}@172.25.0.2:5432/rendycrm?sslmode=disable
+      REDIS_ADDR: 172.25.0.3:6379
+      PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-http://localhost:8080}
+      APP_ENCRYPTION_SECRET: ${APP_ENCRYPTION_SECRET:-change-me-in-production}
+      ENABLE_DEMO_SEED: ${ENABLE_DEMO_SEED:-true}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      rendycrm:
+        ipv4_address: 172.25.0.4
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+  redis_data:
+
+networks:
+  rendycrm:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.25.0.0/16
