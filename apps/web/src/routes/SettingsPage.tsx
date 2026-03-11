@@ -18,7 +18,9 @@ import {
   useUpdateAvailabilityRulesMutation,
   useUpdateBotMutation,
   useUpdateMasterProfileMutation,
-  useUpdateChannelMutation
+  useUpdateChannelBotMutation,
+  useUpdateChannelMutation,
+  useUpdateOperatorBotMutation
 } from '../lib/queries'
 import type { AvailabilityRule, BotConfig, FAQItem } from '../lib/types'
 
@@ -40,8 +42,10 @@ export function SettingsPage() {
   const operatorBot = useOperatorBotSettings()
   const availability = useAvailability()
   const updateChannel = useUpdateChannelMutation()
+  const updateChannelBot = useUpdateChannelBotMutation()
   const updateMasterProfile = useUpdateMasterProfileMutation()
   const updateBot = useUpdateBotMutation()
+  const updateOperatorBot = useUpdateOperatorBotMutation()
   const createOperatorLink = useCreateOperatorBotLinkCodeMutation()
   const unlinkOperatorBot = useUnlinkOperatorBotMutation()
   const updateAvailabilityRules = useUpdateAvailabilityRulesMutation()
@@ -52,6 +56,8 @@ export function SettingsPage() {
   const [masterPhoneDraft, setMasterPhoneDraft] = useState('')
   const [workStartDraft, setWorkStartDraft] = useState('09:00')
   const [workEndDraft, setWorkEndDraft] = useState('18:00')
+  const [clientBotDraft, setClientBotDraft] = useState({ botUsername: '', botToken: '', webhookSecret: '' })
+  const [operatorBotDraft, setOperatorBotDraft] = useState({ botUsername: '', botToken: '', webhookSecret: '' })
 
   useEffect(() => {
     if (!bot.data) return
@@ -63,6 +69,25 @@ export function SettingsPage() {
     if (!masterProfile.data) return
     setMasterPhoneDraft(masterProfile.data.masterPhoneRaw)
   }, [masterProfile.data])
+
+  useEffect(() => {
+    const telegramChannel = channels.data?.items.find((channel) => channel.provider === 'telegram')
+    if (!telegramChannel) return
+    setClientBotDraft((state) => ({
+      botUsername: state.botUsername || telegramChannel.botUsername || '',
+      botToken: state.botToken,
+      webhookSecret: state.webhookSecret
+    }))
+  }, [channels.data])
+
+  useEffect(() => {
+    if (!operatorBot.data) return
+    setOperatorBotDraft((state) => ({
+      botUsername: state.botUsername || operatorBot.data.botUsername || '',
+      botToken: state.botToken,
+      webhookSecret: state.webhookSecret
+    }))
+  }, [operatorBot.data])
 
   useEffect(() => {
     if (!availability.data?.rules?.length) return
@@ -135,6 +160,44 @@ export function SettingsPage() {
       invalidateKeys: [['master-profile'], ['channels']],
       telemetry: { screen: 'settings', entity: 'master-profile' }
     })
+  }
+
+  const onSaveClientBot = async (connected: boolean, name: string) => {
+    await runAction({
+      key: 'client-bot-save',
+      event: 'client_bot_saved',
+      execute: () =>
+        updateChannelBot.mutateAsync({
+          provider: 'telegram',
+          connected,
+          name,
+          botUsername: clientBotDraft.botUsername,
+          botToken: clientBotDraft.botToken,
+          webhookSecret: clientBotDraft.webhookSecret
+        }),
+      successMessage: 'Telegram client bot сохранен.',
+      invalidateKeys: [['channels']],
+      telemetry: { screen: 'settings', entity: 'telegram-client-bot' }
+    })
+    setClientBotDraft((state) => ({ ...state, botToken: '', webhookSecret: '' }))
+  }
+
+  const onSaveOperatorBotSettings = async () => {
+    await runAction({
+      key: 'operator-bot-save',
+      event: 'operator_bot_saved',
+      execute: () =>
+        updateOperatorBot.mutateAsync({
+          enabled: true,
+          botUsername: operatorBotDraft.botUsername,
+          botToken: operatorBotDraft.botToken,
+          webhookSecret: operatorBotDraft.webhookSecret
+        }),
+      successMessage: 'Telegram operator bot сохранен.',
+      invalidateKeys: [['operator-bot']],
+      telemetry: { screen: 'settings', entity: 'operator-bot' }
+    })
+    setOperatorBotDraft((state) => ({ ...state, botToken: '', webhookSecret: '' }))
   }
 
   const onCreateOperatorLink = async () => {
@@ -303,6 +366,43 @@ export function SettingsPage() {
                       <ActionButton variant="quiet" isLoading={isPending(`test-webhook-${channel.provider}`)} loadingLabel="..." onClick={() => void onTestWebhook(channel.provider)}>Тест</ActionButton>
                     </div>
                   </div>
+                  {channel.provider === 'telegram' ? (
+                    <div className="mt-4 grid gap-3 rounded-[10px] border border-dashed border-[#d8d8d8] bg-white p-4">
+                      <label className="text-sm text-[#5e5e5e]">
+                        <span className="mb-1 block text-xs font-medium text-[#8e8e8e]">Bot username</span>
+                        <input
+                          value={clientBotDraft.botUsername}
+                          onChange={(event) => setClientBotDraft((state) => ({ ...state, botUsername: event.target.value }))}
+                          placeholder="my_client_bot"
+                          className="w-full rounded-[10px] border border-[#ebebeb] bg-white px-4 py-3 text-[#292929] outline-none focus:border-[#8089a8]"
+                        />
+                      </label>
+                      <label className="text-sm text-[#5e5e5e]">
+                        <span className="mb-1 block text-xs font-medium text-[#8e8e8e]">Bot token</span>
+                        <input
+                          value={clientBotDraft.botToken}
+                          onChange={(event) => setClientBotDraft((state) => ({ ...state, botToken: event.target.value }))}
+                          placeholder="123456:AA..."
+                          className="w-full rounded-[10px] border border-[#ebebeb] bg-white px-4 py-3 text-[#292929] outline-none focus:border-[#8089a8]"
+                        />
+                      </label>
+                      <label className="text-sm text-[#5e5e5e]">
+                        <span className="mb-1 block text-xs font-medium text-[#8e8e8e]">Webhook secret</span>
+                        <input
+                          value={clientBotDraft.webhookSecret}
+                          onChange={(event) => setClientBotDraft((state) => ({ ...state, webhookSecret: event.target.value }))}
+                          placeholder="client-secret-123"
+                          className="w-full rounded-[10px] border border-[#ebebeb] bg-white px-4 py-3 text-[#292929] outline-none focus:border-[#8089a8]"
+                        />
+                      </label>
+                      <div className="flex flex-wrap items-center gap-3">
+                        <ActionButton variant="primary" isLoading={isPending('client-bot-save')} loadingLabel="..." onClick={() => void onSaveClientBot(channel.connected, channel.name)}>
+                          Сохранить Telegram bot
+                        </ActionButton>
+                        {channel.tokenConfigured ? <InlineStatusBadge tone="success" label="Токен сохранен" /> : <InlineStatusBadge tone="neutral" label="Токен не сохранен" />}
+                      </div>
+                    </div>
+                  ) : null}
                 </div>
               ))}
             </div>
@@ -349,6 +449,40 @@ export function SettingsPage() {
                         Отвязать
                       </ActionButton>
                     ) : null}
+                  </div>
+                </div>
+                <div className="mt-4 grid gap-3 rounded-[10px] border border-dashed border-[#d8d8d8] bg-white p-4">
+                  <label className="text-sm text-[#5e5e5e]">
+                    <span className="mb-1 block text-xs font-medium text-[#8e8e8e]">Bot username</span>
+                    <input
+                      value={operatorBotDraft.botUsername}
+                      onChange={(event) => setOperatorBotDraft((state) => ({ ...state, botUsername: event.target.value }))}
+                      placeholder="my_operator_bot"
+                      className="w-full rounded-[10px] border border-[#ebebeb] bg-white px-4 py-3 text-[#292929] outline-none focus:border-[#8089a8]"
+                    />
+                  </label>
+                  <label className="text-sm text-[#5e5e5e]">
+                    <span className="mb-1 block text-xs font-medium text-[#8e8e8e]">Bot token</span>
+                    <input
+                      value={operatorBotDraft.botToken}
+                      onChange={(event) => setOperatorBotDraft((state) => ({ ...state, botToken: event.target.value }))}
+                      placeholder="123456:AA..."
+                      className="w-full rounded-[10px] border border-[#ebebeb] bg-white px-4 py-3 text-[#292929] outline-none focus:border-[#8089a8]"
+                    />
+                  </label>
+                  <label className="text-sm text-[#5e5e5e]">
+                    <span className="mb-1 block text-xs font-medium text-[#8e8e8e]">Webhook secret</span>
+                    <input
+                      value={operatorBotDraft.webhookSecret}
+                      onChange={(event) => setOperatorBotDraft((state) => ({ ...state, webhookSecret: event.target.value }))}
+                      placeholder="operator-secret-123"
+                      className="w-full rounded-[10px] border border-[#ebebeb] bg-white px-4 py-3 text-[#292929] outline-none focus:border-[#8089a8]"
+                    />
+                  </label>
+                  <div>
+                    <ActionButton variant="primary" isLoading={isPending('operator-bot-save')} loadingLabel="..." onClick={() => void onSaveOperatorBotSettings()}>
+                      Сохранить operator bot
+                    </ActionButton>
                   </div>
                 </div>
               </div>

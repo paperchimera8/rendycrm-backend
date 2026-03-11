@@ -42,6 +42,8 @@ import {
   updateMasterProfile,
   updateBotConfig,
   updateChannel,
+  updateChannelBot,
+  updateOperatorBotSettings,
   createOperatorBotLinkCode,
   updateAvailabilityRules,
   updateSlotColor,
@@ -320,6 +322,28 @@ export function useUpdateChannelMutation() {
   })
 }
 
+export function useUpdateChannelBotMutation() {
+  const client = useQueryClient()
+  return useMutation({
+    mutationFn: ({
+      provider,
+      connected,
+      name,
+      botUsername,
+      botToken,
+      webhookSecret
+    }: {
+      provider: string
+      connected: boolean
+      name: string
+      botUsername: string
+      botToken: string
+      webhookSecret: string
+    }) => updateChannelBot(provider, { connected, name, botUsername, botToken, webhookSecret }),
+    onSuccess: () => client.invalidateQueries({ queryKey: ['channels'] })
+  })
+}
+
 export function useUpdateMasterProfileMutation() {
   const client = useQueryClient()
   return useMutation({
@@ -341,6 +365,24 @@ export function useCreateOperatorBotLinkCodeMutation() {
   const client = useQueryClient()
   return useMutation({
     mutationFn: createOperatorBotLinkCode,
+    onSuccess: () => client.invalidateQueries({ queryKey: ['operator-bot'] })
+  })
+}
+
+export function useUpdateOperatorBotMutation() {
+  const client = useQueryClient()
+  return useMutation({
+    mutationFn: ({
+      enabled,
+      botUsername,
+      botToken,
+      webhookSecret
+    }: {
+      enabled: boolean
+      botUsername: string
+      botToken: string
+      webhookSecret: string
+    }) => updateOperatorBotSettings({ enabled, botUsername, botToken, webhookSecret }),
     onSuccess: () => client.invalidateQueries({ queryKey: ['operator-bot'] })
   })
 }

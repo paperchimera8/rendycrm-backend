@@ -65,7 +65,12 @@ func (s *Server) handleOperatorBotSettings(w http.ResponseWriter, r *http.Reques
 		s.writeJSON(w, http.StatusOK, settings)
 	case r.Method == http.MethodPost && r.URL.Path == "/settings/operator-bot/link-code":
 		actor := domain.Actor{Kind: domain.ActorUser, WorkspaceID: auth.Workspace.ID, UserID: auth.User.ID, Role: string(auth.User.Role)}
-		code, err := s.runtime.services.OperatorLink.CreateLinkCode(r.Context(), actor, auth.Workspace.ID, auth.User.ID, s.cfg.OperatorBotUsername)
+		settings, err := s.runtime.repository.OperatorBotSettings(r.Context(), auth.Workspace.ID, auth.User.ID, s.cfg.OperatorBotUsername, s.cfg.PublicBaseURL)
+		if err != nil {
+			s.writeError(w, http.StatusInternalServerError, "operator bot settings query failed")
+			return
+		}
+		code, err := s.runtime.services.OperatorLink.CreateLinkCode(r.Context(), actor, auth.Workspace.ID, auth.User.ID, settings.BotUsername)
 		if err != nil {
 			status := http.StatusInternalServerError
 			if errors.Is(err, domain.ErrAccessDenied) {

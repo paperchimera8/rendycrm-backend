@@ -176,10 +176,14 @@ export type ChannelAccount = {
   id: string
   provider: 'telegram' | 'whatsapp'
   channel?: 'telegram' | 'whatsapp'
+  channelKind?: 'telegram_client' | 'telegram_operator' | 'whatsapp_twilio'
   name: string
   connected: boolean
+  isEnabled?: boolean
   webhookUrl: string
   accountId?: string
+  botUsername?: string
+  tokenConfigured?: boolean
 }
 
 export type MasterProfile = {

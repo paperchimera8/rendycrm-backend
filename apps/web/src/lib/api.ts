@@ -322,6 +322,16 @@ export async function updateChannel(provider: string, payload: { connected: bool
   })
 }
 
+export async function updateChannelBot(
+  provider: string,
+  payload: { connected: boolean; name: string; botUsername: string; botToken: string; webhookSecret: string }
+) {
+  return request<ChannelAccount>(`/settings/channels/${provider}`, {
+    method: 'PUT',
+    body: JSON.stringify(payload)
+  })
+}
+
 export async function getMasterProfile() {
   return request<MasterProfile>('/settings/master-profile')
 }
@@ -346,6 +356,18 @@ export async function updateBotConfig(config: BotConfig, faqItems: FAQItem[]) {
 
 export async function getOperatorBotSettings() {
   return request<OperatorBotSettings>('/settings/operator-bot')
+}
+
+export async function updateOperatorBotSettings(payload: {
+  enabled: boolean
+  botUsername: string
+  botToken: string
+  webhookSecret: string
+}) {
+  return request<OperatorBotSettings>('/settings/operator-bot', {
+    method: 'PUT',
+    body: JSON.stringify(payload)
+  })
 }
 
 export async function createOperatorBotLinkCode() {
