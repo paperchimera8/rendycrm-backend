@@ -7,12 +7,26 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
     volumes:
       - postgres_data:/var/lib/postgresql/data
+    networks:
+      - rendycrm
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d rendycrm"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
     restart: unless-stopped
 
   redis:
     image: redis:7
     volumes:
       - redis_data:/data
+    networks:
+      - rendycrm
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
     restart: unless-stopped
 
   api:
@@ -29,9 +43,19 @@ services:
       APP_ENCRYPTION_SECRET: ${APP_ENCRYPTION_SECRET:-change-me-in-production}
       ENABLE_DEMO_SEED: ${ENABLE_DEMO_SEED:-true}
     depends_on:
-      - postgres
-      - redis
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    dns:
+      - 127.0.0.11
+    networks:
+      - rendycrm
     restart: unless-stopped
+
+networks:
+  rendycrm:
+    driver: bridge
 
 volumes:
   postgres_data:
