@@ -17,7 +17,6 @@ RUN apk add --no-cache ca-certificates
 COPY --from=api-builder /api /api
 COPY migrations /migrations
 COPY --from=web-builder /app/apps/web/dist /web
-COPY .env /.env
-EXPOSE 8080
+EXPOSE 3000
 ENV STATIC_DIR=/web
 ENTRYPOINT ["/api"]
