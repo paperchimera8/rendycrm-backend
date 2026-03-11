@@ -9,6 +9,8 @@ import (
 	"log"
 	"net/http"
 	"net/url"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -93,6 +95,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("/settings/operator-bot/", s.requireAuth(s.handleOperatorBotSettings))
 	s.mux.HandleFunc("/events", s.requireAuth(s.handleEvents))
 	s.mux.HandleFunc("/webhooks/", s.handleWebhook)
+	s.mux.HandleFunc("/", s.handleApp)
 }
 
 func (s *Server) startWorker(ctx context.Context) {
@@ -200,6 +203,30 @@ func (s *Server) decodeJSON(r *http.Request, target any) error {
 	decoder := json.NewDecoder(io.LimitReader(r.Body, 1<<20))
 	decoder.DisallowUnknownFields()
 	return decoder.Decode(target)
+}
+
+func (s *Server) handleApp(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet && r.Method != http.MethodHead {
+		s.writeError(w, http.StatusNotFound, "not found")
+		return
+	}
+	staticDir := strings.TrimSpace(s.cfg.StaticDir)
+	if staticDir == "" {
+		s.writeError(w, http.StatusNotFound, "not found")
+		return
+	}
+	cleanPath := filepath.Clean("/" + strings.TrimSpace(r.URL.Path))
+	targetPath := filepath.Join(staticDir, filepath.FromSlash(strings.TrimPrefix(cleanPath, "/")))
+	if info, err := os.Stat(targetPath); err == nil && !info.IsDir() {
+		http.ServeFile(w, r, targetPath)
+		return
+	}
+	indexPath := filepath.Join(staticDir, "index.html")
+	if _, err := os.Stat(indexPath); err != nil {
+		s.writeError(w, http.StatusNotFound, "not found")
+		return
+	}
+	http.ServeFile(w, r, indexPath)
 }
 
 func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
