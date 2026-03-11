@@ -1,6 +1,7 @@
 package app
 
 import (
+	"bufio"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -28,6 +29,8 @@ type Config struct {
 }
 
 func LoadConfig() Config {
+	loadDotEnv(".env")
+
 	return Config{
 		Port:                envOrDefault("PORT", "8080"),
 		StaticDir:           envOrDefault("STATIC_DIR", ""),
@@ -45,6 +48,36 @@ func LoadConfig() Config {
 		EncryptionSecret:    strings.TrimSpace(os.Getenv("APP_ENCRYPTION_SECRET")),
 		CORSAllowedOrigins:  parseCSV(os.Getenv("CORS_ALLOWED_ORIGINS")),
 		EnableDemoSeed:      envOrDefaultBool("ENABLE_DEMO_SEED", false),
+	}
+}
+
+func loadDotEnv(path string) {
+	file, err := os.Open(path)
+	if err != nil {
+		return
+	}
+	defer file.Close()
+
+	scanner := bufio.NewScanner(file)
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+
+		key, value, ok := strings.Cut(line, "=")
+		if !ok {
+			continue
+		}
+		key = strings.TrimSpace(key)
+		value = strings.TrimSpace(value)
+		if key == "" {
+			continue
+		}
+		if _, exists := os.LookupEnv(key); exists {
+			continue
+		}
+		_ = os.Setenv(key, value)
 	}
 }
 
