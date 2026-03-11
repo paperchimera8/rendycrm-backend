@@ -1,0 +1,49 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: light;
+  font-family: Manrope, system-ui, -apple-system, sans-serif;
+  --page-bg: #f7f7fb;
+  --surface: #ffffff;
+  --surface-soft: #f7f7f7;
+  --border: #ebebeb;
+  --text: #292929;
+  --muted: #8e8e8e;
+  --primary: #252525;
+  --primary-foreground: #fbfbfb;
+  /* shadcn/ui theme mapping */
+  --background: var(--page-bg);
+  --foreground: var(--text);
+  --card: var(--surface);
+  --card-foreground: var(--text);
+  --muted-foreground: var(--muted);
+  --secondary: #f7f7f7;
+  --secondary-foreground: var(--text);
+  --accent: #f7f7f7;
+  --accent-foreground: var(--text);
+  --destructive: #dc2626;
+  --ring: #8089a8;
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+  min-height: 100vh;
+  background:
+    radial-gradient(circle at top left, rgba(175, 128, 208, 0.18), transparent 32%),
+    radial-gradient(circle at top right, rgba(128, 137, 168, 0.2), transparent 36%),
+    var(--page-bg);
+  color: var(--text);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+button,
+input,
+textarea {
+  font: inherit;
+}

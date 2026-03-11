@@ -1,0 +1,40 @@
+package app
+
+import (
+	"testing"
+	"time"
+)
+
+func TestComputeAvailableSlotsSkipsConflicts(t *testing.T) {
+	base := time.Date(2026, 3, 9, 8, 0, 0, 0, time.UTC)
+	rules := []AvailabilityRule{{ID: "avr_1", DayOfWeek: 1, StartMinute: 9 * 60, EndMinute: 15 * 60, Enabled: true}}
+	bookings := []Booking{{StartsAt: time.Date(2026, 3, 9, 9, 0, 0, 0, time.UTC), EndsAt: time.Date(2026, 3, 9, 10, 0, 0, 0, time.UTC), Status: BookingConfirmed}}
+	slots := computeAvailableSlots(base, rules, nil, bookings, nil)
+	if len(slots) == 0 {
+		t.Fatal("expected available slots")
+	}
+	if slots[0].Start.Hour() == 9 {
+		t.Fatalf("expected first slot to skip booked window, got %s", slots[0].Start)
+	}
+}
+
+func TestSlotAvailableRejectsException(t *testing.T) {
+	start := time.Date(2026, 3, 9, 12, 0, 0, 0, time.UTC)
+	end := start.Add(time.Hour)
+	exceptions := []AvailabilityException{{StartsAt: start.Add(-15 * time.Minute), EndsAt: end.Add(15 * time.Minute)}}
+	if slotAvailable(start, end, exceptions, nil, nil) {
+		t.Fatal("expected slot to be unavailable")
+	}
+}
+
+func TestComputeAvailableSlotsRoundsUpAfterPartialBooking(t *testing.T) {
+	base := time.Date(2026, 3, 9, 8, 0, 0, 0, time.UTC)
+	rules := []AvailabilityRule{{ID: "avr_1", DayOfWeek: 1, StartMinute: 10 * 60, EndMinute: 15 * 60, Enabled: true}}
+	bookings := []Booking{{StartsAt: time.Date(2026, 3, 9, 11, 0, 0, 0, time.UTC), EndsAt: time.Date(2026, 3, 9, 12, 30, 0, 0, time.UTC), Status: BookingConfirmed}}
+	slots := computeAvailableSlots(base, rules, nil, bookings, nil)
+	for _, slot := range slots {
+		if slot.Start.Hour() == 12 {
+			t.Fatalf("expected 12:00-13:00 slot to be blocked, got %s-%s", slot.Start, slot.End)
+		}
+	}
+}
