@@ -10,7 +10,8 @@ services:
     ports:
       - "127.0.0.1:5432:5432"
     networks:
-      - rendycrm
+      rendycrm:
+        ipv4_address: 172.25.0.2
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres"]
       interval: 5s
@@ -25,7 +26,8 @@ services:
     ports:
       - "127.0.0.1:6379:6379"
     networks:
-      - rendycrm
+      rendycrm:
+        ipv4_address: 172.25.0.3
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
@@ -43,8 +45,8 @@ services:
       - "${PORT:-3000}:3000"
     environment:
       PORT: "3000"
-      POSTGRES_DSN: postgres://postgres:${POSTGRES_PASSWORD:-postgres}@postgres:5432/rendycrm?sslmode=disable
-      REDIS_ADDR: redis:6379
+      POSTGRES_DSN: postgres://postgres:${POSTGRES_PASSWORD:-postgres}@172.25.0.2:5432/rendycrm?sslmode=disable
+      REDIS_ADDR: 172.25.0.3:6379
       PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-http://localhost:3000}
       APP_ENCRYPTION_SECRET: ${APP_ENCRYPTION_SECRET:-change-me-in-production}
       ENABLE_DEMO_SEED: ${ENABLE_DEMO_SEED:-true}
@@ -52,14 +54,10 @@ services:
       postgres:
         condition: service_healthy
       redis:
-        condition: service_started
-    dns:
-      - 127.0.0.11
-    links:
-      - postgres
-      - redis
+        condition: service_healthy
     networks:
-      - rendycrm
+      rendycrm:
+        ipv4_address: 172.25.0.4
     restart: unless-stopped
 
 volumes:
