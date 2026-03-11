@@ -18,6 +18,6 @@ COPY --from=api-builder /api /api
 COPY migrations /migrations
 COPY --from=web-builder /app/apps/web/dist /web
 COPY .env /.env
-EXPOSE 3000
+EXPOSE 8080
 ENV STATIC_DIR=/web
 ENTRYPOINT ["/api"]
