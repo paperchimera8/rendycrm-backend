@@ -7,6 +7,8 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
     volumes:
       - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "127.0.0.1:5432:5432"
     networks:
       - rendycrm
     restart: unless-stopped
@@ -15,6 +17,8 @@ services:
     image: redis:7
     volumes:
       - redis_data:/data
+    ports:
+      - "127.0.0.1:6379:6379"
     networks:
       - rendycrm
     restart: unless-stopped
@@ -35,15 +39,14 @@ services:
     depends_on:
       - postgres
       - redis
-    dns: 127.0.0.11
     networks:
       - rendycrm
     restart: unless-stopped
 
-networks:
-  rendycrm:
-    driver: bridge
-
 volumes:
   postgres_data:
   redis_data:
+
+networks:
+  rendycrm:
+    driver: bridge
