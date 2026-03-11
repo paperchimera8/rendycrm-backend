@@ -45,7 +45,7 @@ func LoadConfig() Config {
 		PublicBaseURL:       envOrDefault("PUBLIC_BASE_URL", "http://127.0.0.1:3000"),
 		OperatorBotUsername: envOrDefault("TELEGRAM_OPERATOR_BOT_USERNAME", "rendycrm_operator_bot"),
 		TelegramAPIBaseURL:  envOrDefault("TELEGRAM_API_BASE_URL", "https://api.telegram.org"),
-		EncryptionSecret:    strings.TrimSpace(os.Getenv("APP_ENCRYPTION_SECRET")),
+		EncryptionSecret:    strings.TrimSpace(envOrDefault("APP_ENCRYPTION_SECRET", "change-me-in-production")),
 		CORSAllowedOrigins:  parseCSV(os.Getenv("CORS_ALLOWED_ORIGINS")),
 		EnableDemoSeed:      envOrDefaultBool("ENABLE_DEMO_SEED", false),
 	}
