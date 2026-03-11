@@ -34,8 +34,8 @@ func LoadConfig() Config {
 	return Config{
 		Port:                envOrDefault("PORT", "8080"),
 		StaticDir:           envOrDefault("STATIC_DIR", ""),
-		PostgresDSN:         envOrDefault("POSTGRES_DSN", "postgres://postgres:postgres@127.0.0.1:55432/rendycrm?sslmode=disable"),
-		RedisAddr:           envOrDefault("REDIS_ADDR", "127.0.0.1:56379"),
+		PostgresDSN:         envOrDefault("POSTGRES_DSN", "postgres://postgres:postgres@postgres:5432/rendycrm?sslmode=disable"),
+		RedisAddr:           envOrDefault("REDIS_ADDR", "redis:6379"),
 		RedisPassword:       os.Getenv("REDIS_PASSWORD"),
 		RedisDB:             envOrDefaultInt("REDIS_DB", 0),
 		SessionTTL:          envOrDefaultDuration("SESSION_TTL", 24*time.Hour),
