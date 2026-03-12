@@ -232,4 +232,5 @@ export type OperatorBotSettings = {
   pendingLink: OperatorBotLinkCode | null
   botUsername: string
   operatorWebhookUrl: string
+  tokenConfigured: boolean
 }
