@@ -10,6 +10,40 @@
   </head>
   <body>
     <div id="root"></div>
-    <script type="module" src="/src/main.tsx"></script>
+    <script>
+      (function () {
+        function renderBootError(title, details) {
+          var root = document.getElementById('root')
+          if (!root) return
+          root.innerHTML =
+            '<div style="min-height:100vh;display:grid;place-items:center;background:#f7f7fb;color:#292929;padding:24px;font-family:Manrope,system-ui,sans-serif">' +
+            '<div style="max-width:760px;width:100%;background:#fff;border:1px solid #f0d7d7;border-radius:12px;padding:20px">' +
+            '<p style="margin:0 0 10px;color:#b42318;font-size:12px;letter-spacing:.12em;text-transform:uppercase">Ошибка запуска</p>' +
+            '<h1 style="margin:0 0 10px;font-size:24px;line-height:1.2">Интерфейс не загрузился</h1>' +
+            '<p style="margin:0 0 12px;font-size:14px;opacity:.85">' + title + '</p>' +
+            '<pre style="margin:0;background:#fff5f5;border:1px solid #f9d4d4;border-radius:8px;padding:10px;white-space:pre-wrap;word-break:break-word;font-size:12px">' + details + '</pre>' +
+            '<button onclick="window.location.reload()" style="margin-top:12px;border:none;background:#30293f;color:#fff;padding:10px 14px;border-radius:10px;cursor:pointer">Перезагрузить</button>' +
+            '</div></div>'
+        }
+        window.__rendyRenderBootError = renderBootError
+      })()
+    </script>
+    <script type="module">
+      import('/src/main.tsx').catch((error) => {
+        const details = error instanceof Error ? error.stack || error.message : String(error)
+        if (window.__rendyRenderBootError) {
+          window.__rendyRenderBootError('Ошибка загрузки JS-модуля приложения.', details)
+        }
+      })
+      setTimeout(() => {
+        const root = document.getElementById('root')
+        if (window.__rendyBooted !== true && root && root.childElementCount === 0 && window.__rendyRenderBootError) {
+          window.__rendyRenderBootError(
+            'Приложение не инициализировалось за ожидаемое время.',
+            'Проверьте загрузку /assets/*.js и ошибки в Console.'
+          )
+        }
+      }, 5000)
+    </script>
   </body>
 </html>

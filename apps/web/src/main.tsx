@@ -7,6 +7,7 @@ import { router } from './router'
 import './styles.css'
 
 const queryClient = new QueryClient()
+;(window as Window & { __rendyBooted?: boolean }).__rendyBooted = true
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>

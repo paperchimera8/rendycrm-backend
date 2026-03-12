@@ -134,6 +134,7 @@ export function ReviewsPage() {
               const conversation = conversationByCustomerId.get(review.customerId)
               const customerName = booking?.customerName || conversation?.title || 'Клиент'
               const sourceLabel = conversation?.provider === 'telegram' ? 'Telegram' : conversation?.provider === 'whatsapp' ? 'WhatsApp' : null
+              const ratingValue = Number.isFinite(review.rating) ? review.rating : 0
 
               return (
                 <article key={review.id} className="rounded-[10px] border border-[#ebebeb] bg-[#f7f7f7] p-4">
@@ -141,7 +142,7 @@ export function ReviewsPage() {
                     <div className="min-w-0">
                       <p className="truncate text-sm font-semibold text-[#292929]">{customerName}</p>
                       <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-[#767676]">
-                        <span className="font-medium text-[#575757]">{review.rating.toFixed(1)} ★</span>
+                        <span className="font-medium text-[#575757]">{ratingValue.toFixed(1)} ★</span>
                         <InlineStatusBadge tone={review.status === 'open' ? 'danger' : 'success'} label={reviewStatusLabel(review.status)} />
                         <span>{formatReviewDate(review.createdAt)}</span>
                         {booking ? <span>после записи {formatBookingDate(booking.startsAt)}</span> : null}

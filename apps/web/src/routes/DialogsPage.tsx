@@ -21,11 +21,9 @@ import type { DailySlot } from '../lib/types'
 import { useUIStore } from '../stores/ui'
 import { cn } from '@/lib/utils'
 
-const quickReplies = [
-  'Есть подходящие слоты. Могу подтвердить ближайшее время или сразу перенести запись.',
+const staticQuickReplies = [
   'Подтверждаю запись. Отправлю детали и напоминание перед визитом.',
-  'Могу предложить другое время. Смотрите ближайшие свободные окна ниже.',
-  'Если это окно не подходит, перенесу на удобное для клиента время без потери записи.'
+  'Если это окно не подходит, перенесу на удобное для клиента время без потери записи.',
 ]
 
 function bookingStatusLabel(status: string) {
@@ -88,6 +86,19 @@ function slotLabel(slot: DailySlot) {
   return `${new Date(slot.startsAt).toLocaleDateString('ru', { day: 'numeric', month: 'short' })} · ${new Date(slot.startsAt).toLocaleTimeString('ru', { hour: '2-digit', minute: '2-digit' })}`
 }
 
+function availabilityReplyText(slots: DailySlot[]) {
+  if (slots.length === 0) {
+    return 'Сейчас нет свободных окон для записи. Могу предложить другое время, когда появятся слоты.'
+  }
+  const top = slots.slice(0, 5).map((slot) => {
+    const day = new Date(slot.startsAt).toLocaleDateString('ru', { day: '2-digit', month: '2-digit' })
+    const start = new Date(slot.startsAt).toLocaleTimeString('ru', { hour: '2-digit', minute: '2-digit' })
+    const end = new Date(slot.endsAt).toLocaleTimeString('ru', { hour: '2-digit', minute: '2-digit' })
+    return `${day} ${start}-${end}`
+  })
+  return `Свободные окна для записи:\n${top.join('\n')}\n\nНапишите, какое время вам подходит.`
+}
+
 export function DialogsPage() {
   const router = useRouter()
   const conversations = useConversations()
@@ -127,12 +138,12 @@ export function DialogsPage() {
   }, [filteredConversations, selectedConversationId, setSelectedConversationId])
 
   const customerBookings = useMemo(() => {
-    const customerId = detail.data?.customer.id
+    const customerId = detail.data?.customer?.id
     if (!customerId) return []
     return [...(allBookings.data?.items ?? [])]
       .filter((booking) => booking.customerId === customerId)
       .sort((a, b) => new Date(b.startsAt).getTime() - new Date(a.startsAt).getTime())
-  }, [allBookings.data?.items, detail.data?.customer.id])
+  }, [allBookings.data?.items, detail.data?.customer?.id])
 
   const latestPendingBooking = useMemo(() => customerBookings.find((booking) => booking.status === 'pending'), [customerBookings])
   const latestConfirmedBooking = useMemo(() => customerBookings.find((booking) => booking.status === 'confirmed'), [customerBookings])
@@ -150,6 +161,7 @@ export function DialogsPage() {
   }, [availableSlots.data?.items])
 
   const groupedVisibleSlots = useMemo(() => groupSlots(visibleAvailableSlots), [visibleAvailableSlots])
+  const quickReplies = useMemo(() => [availabilityReplyText(visibleAvailableSlots), ...staticQuickReplies], [visibleAvailableSlots])
 
   useEffect(() => {
     if (!latestActionableBooking) {
@@ -166,12 +178,12 @@ export function DialogsPage() {
   }, [latestActionableBooking?.id, latestActionableBooking?.amount, latestActionableBooking?.startsAt, latestActionableBooking?.endsAt, latestActionableBooking?.dailySlotId])
 
   useEffect(() => {
-    if (!detail.data?.customer.id) {
+    if (!detail.data?.customer?.id) {
       setCustomerNameDraft('')
       return
     }
     setCustomerNameDraft(detail.data.customer.name)
-  }, [detail.data?.customer.id])
+  }, [detail.data?.customer?.id])
 
   const parseBookingAmount = () => {
     const amount = Number(bookingAmountDraft.replace(',', '.'))
@@ -213,7 +225,7 @@ export function DialogsPage() {
   }
 
   const onSubmitBooking = async () => {
-    if (!detail.data?.customer.id) return
+    if (!detail.data?.customer?.id) return
     let amount = 0
     let startsAt = ''
     let endsAt = ''
@@ -309,7 +321,7 @@ export function DialogsPage() {
   }
 
   const onSaveCustomerName = async () => {
-    const customerId = detail.data?.customer.id
+    const customerId = detail.data?.customer?.id
     const name = customerNameDraft.trim()
     if (!customerId) return
     if (!name) {
