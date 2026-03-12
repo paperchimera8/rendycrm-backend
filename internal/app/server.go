@@ -149,6 +149,9 @@ func (s *Server) requireAuth(next func(http.ResponseWriter, *http.Request, AuthC
 			}
 		}
 		if token == "" {
+			token = strings.TrimSpace(r.URL.Query().Get("token"))
+		}
+		if token == "" {
 			s.writeError(w, http.StatusUnauthorized, "missing token")
 			return
 		}
@@ -221,12 +224,28 @@ func (s *Server) handleApp(w http.ResponseWriter, r *http.Request) {
 		http.ServeFile(w, r, targetPath)
 		return
 	}
+	if isStaticAssetRequest(cleanPath) {
+		s.writeError(w, http.StatusNotFound, "not found")
+		return
+	}
 	indexPath := filepath.Join(staticDir, "index.html")
 	if _, err := os.Stat(indexPath); err != nil {
 		s.writeError(w, http.StatusNotFound, "not found")
 		return
 	}
 	http.ServeFile(w, r, indexPath)
+}
+
+func isStaticAssetRequest(path string) bool {
+	if strings.HasPrefix(path, "/assets/") || strings.HasPrefix(path, "/favicon") || strings.HasPrefix(path, "/manifest") {
+		return true
+	}
+	switch strings.ToLower(filepath.Ext(path)) {
+	case ".js", ".css", ".map", ".png", ".jpg", ".jpeg", ".gif", ".svg", ".webp", ".ico", ".woff", ".woff2", ".ttf", ".otf":
+		return true
+	default:
+		return false
+	}
 }
 
 func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
