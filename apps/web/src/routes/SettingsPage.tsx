@@ -1,5 +1,4 @@
 import { useEffect, useMemo, useState } from 'react'
-import { ActionBar } from '../components/ActionBar'
 import { ActionButton } from '../components/ActionButton'
 import { EmptyState } from '../components/EmptyState'
 import { InlineStatusBadge } from '../components/InlineStatusBadge'
@@ -9,18 +8,14 @@ import { useActionRunner } from '../lib/actions'
 import {
   useAvailability,
   useBotConfig,
-  useChannels,
   useCreateOperatorBotLinkCodeMutation,
   useMasterProfile,
   useOperatorBotSettings,
-  useSimulateWebhookMutation,
   useUnlinkOperatorBotMutation,
   useUpdateAvailabilityRulesMutation,
   useUpdateBotMutation,
   useUpdateMasterProfileMutation,
-  useUpdateChannelBotMutation,
-  useUpdateChannelMutation,
-  useUpdateOperatorBotMutation
+  useUpdateOperatorBotMutation,
 } from '../lib/queries'
 import type { AvailabilityRule, BotConfig, FAQItem } from '../lib/types'
 
@@ -36,62 +31,54 @@ function timeToMinute(value: string) {
 }
 
 export function SettingsPage() {
-  const channels = useChannels()
   const masterProfile = useMasterProfile()
   const bot = useBotConfig()
   const operatorBot = useOperatorBotSettings()
   const availability = useAvailability()
-  const updateChannel = useUpdateChannelMutation()
-  const updateChannelBot = useUpdateChannelBotMutation()
   const updateMasterProfile = useUpdateMasterProfileMutation()
   const updateBot = useUpdateBotMutation()
   const updateOperatorBot = useUpdateOperatorBotMutation()
-  const createOperatorLink = useCreateOperatorBotLinkCodeMutation()
+  const createOperatorBotLinkCode = useCreateOperatorBotLinkCodeMutation()
   const unlinkOperatorBot = useUnlinkOperatorBotMutation()
   const updateAvailabilityRules = useUpdateAvailabilityRulesMutation()
-  const simulateWebhook = useSimulateWebhookMutation()
   const { runAction, isPending } = useActionRunner()
   const [configDraft, setConfigDraft] = useState<BotConfig | null>(null)
   const [faqDraft, setFaqDraft] = useState<FAQItem[]>([])
   const [masterPhoneDraft, setMasterPhoneDraft] = useState('')
+  const [operatorBotDraft, setOperatorBotDraft] = useState({
+    enabled: false,
+    botUsername: '',
+    botToken: '',
+    webhookSecret: ''
+  })
   const [workStartDraft, setWorkStartDraft] = useState('09:00')
   const [workEndDraft, setWorkEndDraft] = useState('18:00')
-  const [clientBotDraft, setClientBotDraft] = useState({ botUsername: '', botToken: '', webhookSecret: '' })
-  const [operatorBotDraft, setOperatorBotDraft] = useState({ botUsername: '', botToken: '', webhookSecret: '' })
 
   useEffect(() => {
     if (!bot.data) return
     setConfigDraft(bot.data.config)
-    setFaqDraft(bot.data.faqItems)
+    setFaqDraft(bot.data.faqItems ?? [])
   }, [bot.data])
 
   useEffect(() => {
     if (!masterProfile.data) return
-    setMasterPhoneDraft(masterProfile.data.masterPhoneRaw)
+    setMasterPhoneDraft('')
   }, [masterProfile.data])
-
-  useEffect(() => {
-    const telegramChannel = channels.data?.items.find((channel) => channel.provider === 'telegram')
-    if (!telegramChannel) return
-    setClientBotDraft((state) => ({
-      botUsername: state.botUsername || telegramChannel.botUsername || '',
-      botToken: state.botToken,
-      webhookSecret: state.webhookSecret
-    }))
-  }, [channels.data])
 
   useEffect(() => {
     if (!operatorBot.data) return
     setOperatorBotDraft((state) => ({
-      botUsername: state.botUsername || operatorBot.data.botUsername || '',
-      botToken: state.botToken,
+      enabled: Boolean(operatorBot.data.binding || operatorBot.data.botUsername || operatorBot.data.tokenConfigured),
+      botUsername: operatorBot.data.botUsername ?? '',
+      botToken: '',
       webhookSecret: state.webhookSecret
     }))
   }, [operatorBot.data])
 
   useEffect(() => {
-    if (!availability.data?.rules?.length) return
-    const enabled = availability.data.rules.filter((rule) => rule.enabled)
+    const rules = Array.isArray(availability.data?.rules) ? availability.data.rules : []
+    if (!rules.length) return
+    const enabled = rules.filter((rule) => rule.enabled)
     if (!enabled.length) return
     const start = Math.min(...enabled.map((rule) => rule.startMinute))
     const end = Math.max(...enabled.map((rule) => rule.endMinute))
@@ -101,43 +88,8 @@ export function SettingsPage() {
 
   const isDirty = useMemo(() => {
     if (!bot.data || !configDraft) return false
-    return JSON.stringify(configDraft) !== JSON.stringify(bot.data.config) || JSON.stringify(faqDraft) !== JSON.stringify(bot.data.faqItems)
+    return JSON.stringify(configDraft) !== JSON.stringify(bot.data.config) || JSON.stringify(faqDraft) !== JSON.stringify(bot.data.faqItems ?? [])
   }, [bot.data, configDraft, faqDraft])
-
-  const onToggleChannel = async (provider: string, connected: boolean, name: string) => {
-    await runAction({
-      key: `channel-${provider}`,
-      event: connected ? 'channel_disconnected' : 'channel_connected',
-      execute: () => updateChannel.mutateAsync({ provider, connected: !connected, name }),
-      successMessage: connected ? `${name} отключен.` : `${name} подключен.`,
-      invalidateKeys: [['channels']],
-      telemetry: { screen: 'settings', provider }
-    })
-  }
-
-  const onCopyWebhook = async (provider: string, webhookUrl: string) => {
-    await runAction({
-      key: `copy-webhook-${provider}`,
-      event: 'webhook_copied',
-      execute: async () => {
-        await navigator.clipboard.writeText(webhookUrl)
-        return { ok: true }
-      },
-      successMessage: 'Webhook URL скопирован.',
-      telemetry: { screen: 'settings', provider }
-    })
-  }
-
-  const onTestWebhook = async (provider: 'telegram' | 'whatsapp') => {
-    await runAction({
-      key: `test-webhook-${provider}`,
-      event: 'webhook_tested',
-      execute: () => simulateWebhook.mutateAsync({ provider, customerName: 'Тестовый лид из настроек', text: `Проверка канала ${provider}` }),
-      successMessage: `Тестовый лид ${provider} отправлен во входящие.`,
-      invalidateKeys: [['conversations'], ['dashboard']],
-      telemetry: { screen: 'settings', provider }
-    })
-  }
 
   const onSaveBot = async () => {
     if (!configDraft) return
@@ -157,55 +109,41 @@ export function SettingsPage() {
       event: 'master_phone_saved',
       execute: () => updateMasterProfile.mutateAsync({ masterPhone: masterPhoneDraft }),
       successMessage: 'Номер мастера сохранен.',
-      invalidateKeys: [['master-profile'], ['channels']],
+      invalidateKeys: [['master-profile']],
       telemetry: { screen: 'settings', entity: 'master-profile' }
     })
   }
 
-  const onSaveClientBot = async (connected: boolean, name: string) => {
-    await runAction({
-      key: 'client-bot-save',
-      event: 'client_bot_saved',
-      execute: () =>
-        updateChannelBot.mutateAsync({
-          provider: 'telegram',
-          connected,
-          name,
-          botUsername: clientBotDraft.botUsername,
-          botToken: clientBotDraft.botToken,
-          webhookSecret: clientBotDraft.webhookSecret
-        }),
-      successMessage: 'Telegram client bot сохранен.',
-      invalidateKeys: [['channels']],
-      telemetry: { screen: 'settings', entity: 'telegram-client-bot' }
-    })
-    setClientBotDraft((state) => ({ ...state, botToken: '', webhookSecret: '' }))
+  const onDiscardBot = () => {
+    if (!bot.data) return
+    setConfigDraft(bot.data.config)
+    setFaqDraft(bot.data.faqItems ?? [])
   }
 
-  const onSaveOperatorBotSettings = async () => {
+  const onSaveOperatorBot = async () => {
     await runAction({
       key: 'operator-bot-save',
       event: 'operator_bot_saved',
       execute: () =>
         updateOperatorBot.mutateAsync({
-          enabled: true,
+          enabled: operatorBotDraft.enabled,
           botUsername: operatorBotDraft.botUsername,
           botToken: operatorBotDraft.botToken,
           webhookSecret: operatorBotDraft.webhookSecret
         }),
-      successMessage: 'Telegram operator bot сохранен.',
+      successMessage: 'Настройки operator bot сохранены.',
       invalidateKeys: [['operator-bot']],
       telemetry: { screen: 'settings', entity: 'operator-bot' }
     })
-    setOperatorBotDraft((state) => ({ ...state, botToken: '', webhookSecret: '' }))
+    setOperatorBotDraft((state) => ({ ...state, botToken: '' }))
   }
 
   const onCreateOperatorLink = async () => {
     await runAction({
       key: 'operator-bot-link',
       event: 'operator_bot_link_created',
-      execute: () => createOperatorLink.mutateAsync(),
-      successMessage: 'Ссылка для привязки Telegram operator bot создана.',
+      execute: () => createOperatorBotLinkCode.mutateAsync(),
+      successMessage: 'Ссылка для привязки создана.',
       invalidateKeys: [['operator-bot']],
       telemetry: { screen: 'settings', entity: 'operator-bot' }
     })
@@ -216,16 +154,10 @@ export function SettingsPage() {
       key: 'operator-bot-unlink',
       event: 'operator_bot_unlinked',
       execute: () => unlinkOperatorBot.mutateAsync(),
-      successMessage: 'Telegram operator bot отвязан.',
+      successMessage: 'Operator bot отвязан.',
       invalidateKeys: [['operator-bot']],
       telemetry: { screen: 'settings', entity: 'operator-bot' }
     })
-  }
-
-  const onDiscardBot = () => {
-    if (!bot.data) return
-    setConfigDraft(bot.data.config)
-    setFaqDraft(bot.data.faqItems)
   }
 
   const onSaveWorkHours = async () => {
@@ -295,7 +227,7 @@ export function SettingsPage() {
                 type="tel"
                 value={masterPhoneDraft}
                 onChange={(event) => setMasterPhoneDraft(event.target.value)}
-                placeholder="+7 999 111-22-33"
+                placeholder="+7"
                 className="w-full rounded-[10px] border border-[#ebebeb] bg-white px-4 py-3 text-[#292929] outline-none focus:border-[#8089a8]"
               />
             </label>
@@ -303,11 +235,6 @@ export function SettingsPage() {
               <ActionButton variant="primary" isLoading={isPending('master-phone-save')} loadingLabel="..." onClick={() => void onSaveMasterPhone()}>
                 Сохранить
               </ActionButton>
-              {masterProfile.data?.masterPhoneNormalized ? (
-                <InlineStatusBadge tone="success" label={`Нормализован: ${masterProfile.data.masterPhoneNormalized}`} />
-              ) : (
-                <InlineStatusBadge tone="neutral" label="Номер не задан" />
-              )}
             </div>
             <p className="text-xs text-[#8e8e8e]">
               Этот номер клиент вводит в общем Telegram client bot, чтобы попасть в ваш кабинет.
@@ -342,154 +269,6 @@ export function SettingsPage() {
           <p className="mt-3 text-xs text-[#8e8e8e]">
             Свободные окна рассчитываются с шагом 1 час в рамках этого интервала.
           </p>
-        </SectionCard>
-
-        <SectionCard title="Каналы">
-          {channels.data?.items.length ? (
-            <div className="space-y-3">
-              {channels.data.items.map((channel) => (
-                <div key={channel.id} className="rounded-[10px] border border-[#ebebeb] bg-[#f7f7f7] p-4">
-                  <div className="flex flex-wrap items-start justify-between gap-3">
-                    <div>
-                      <div className="flex items-center gap-2">
-                        <p className="font-semibold text-[#292929]">{channel.name}</p>
-                        <InlineStatusBadge tone={channel.connected ? 'success' : 'neutral'} label={channel.connected ? 'подключен' : 'отключен'} />
-                      </div>
-                      <p className="mt-1 text-sm uppercase tracking-[0.2em] text-[#8e8e8e]">{channel.provider}</p>
-                      <p className="mt-3 break-all text-sm text-[#5e5e5e]">Webhook: {channel.webhookUrl}</p>
-                    </div>
-                    <div className="flex flex-wrap gap-2">
-                      <ActionButton variant={channel.connected ? 'danger' : 'secondary'} isLoading={isPending(`channel-${channel.provider}`)} loadingLabel="..." onClick={() => void onToggleChannel(channel.provider, channel.connected, channel.name)}>
-                        {channel.connected ? 'Откл.' : 'Подкл.'}
-                      </ActionButton>
-                      <ActionButton variant="quiet" isLoading={isPending(`copy-webhook-${channel.provider}`)} loadingLabel="..." onClick={() => void onCopyWebhook(channel.provider, channel.webhookUrl)}>Копировать</ActionButton>
-                      <ActionButton variant="quiet" isLoading={isPending(`test-webhook-${channel.provider}`)} loadingLabel="..." onClick={() => void onTestWebhook(channel.provider)}>Тест</ActionButton>
-                    </div>
-                  </div>
-                  {channel.provider === 'telegram' ? (
-                    <div className="mt-4 grid gap-3 rounded-[10px] border border-dashed border-[#d8d8d8] bg-white p-4">
-                      <label className="text-sm text-[#5e5e5e]">
-                        <span className="mb-1 block text-xs font-medium text-[#8e8e8e]">Bot username</span>
-                        <input
-                          value={clientBotDraft.botUsername}
-                          onChange={(event) => setClientBotDraft((state) => ({ ...state, botUsername: event.target.value }))}
-                          placeholder="my_client_bot"
-                          className="w-full rounded-[10px] border border-[#ebebeb] bg-white px-4 py-3 text-[#292929] outline-none focus:border-[#8089a8]"
-                        />
-                      </label>
-                      <label className="text-sm text-[#5e5e5e]">
-                        <span className="mb-1 block text-xs font-medium text-[#8e8e8e]">Bot token</span>
-                        <input
-                          value={clientBotDraft.botToken}
-                          onChange={(event) => setClientBotDraft((state) => ({ ...state, botToken: event.target.value }))}
-                          placeholder="123456:AA..."
-                          className="w-full rounded-[10px] border border-[#ebebeb] bg-white px-4 py-3 text-[#292929] outline-none focus:border-[#8089a8]"
-                        />
-                      </label>
-                      <label className="text-sm text-[#5e5e5e]">
-                        <span className="mb-1 block text-xs font-medium text-[#8e8e8e]">Webhook secret</span>
-                        <input
-                          value={clientBotDraft.webhookSecret}
-                          onChange={(event) => setClientBotDraft((state) => ({ ...state, webhookSecret: event.target.value }))}
-                          placeholder="client-secret-123"
-                          className="w-full rounded-[10px] border border-[#ebebeb] bg-white px-4 py-3 text-[#292929] outline-none focus:border-[#8089a8]"
-                        />
-                      </label>
-                      <div className="flex flex-wrap items-center gap-3">
-                        <ActionButton variant="primary" isLoading={isPending('client-bot-save')} loadingLabel="..." onClick={() => void onSaveClientBot(channel.connected, channel.name)}>
-                          Сохранить Telegram bot
-                        </ActionButton>
-                        {channel.tokenConfigured ? <InlineStatusBadge tone="success" label="Токен сохранен" /> : <InlineStatusBadge tone="neutral" label="Токен не сохранен" />}
-                      </div>
-                    </div>
-                  ) : null}
-                </div>
-              ))}
-            </div>
-          ) : (
-            <EmptyState title="Каналы не настроены" />
-          )}
-        </SectionCard>
-
-        <SectionCard title="Telegram operator bot">
-          {operatorBot.data ? (
-            <div className="space-y-3">
-              <div className="rounded-[10px] border border-[#ebebeb] bg-[#f7f7f7] p-4">
-                <div className="flex flex-wrap items-start justify-between gap-3">
-                  <div>
-                    <div className="flex items-center gap-2">
-                      <p className="font-semibold text-[#292929]">@{operatorBot.data.botUsername.replace(/^@/, '')}</p>
-                      <InlineStatusBadge
-                        tone={operatorBot.data.binding ? 'success' : 'neutral'}
-                        label={operatorBot.data.binding ? 'привязан' : 'не привязан'}
-                      />
-                    </div>
-                    <p className="mt-2 text-sm text-[#5e5e5e]">Webhook: {operatorBot.data.operatorWebhookUrl}</p>
-                    {operatorBot.data.binding ? (
-                      <p className="mt-2 text-sm text-[#5e5e5e]">
-                        Telegram chat: {operatorBot.data.binding.telegramChatId}
-                      </p>
-                    ) : null}
-                    {operatorBot.data.pendingLink ? (
-                      <div className="mt-3 rounded-[10px] border border-dashed border-[#d8d8d8] bg-white p-3 text-sm text-[#5e5e5e]">
-                        <p>Активная ссылка: {operatorBot.data.pendingLink.deepLink}</p>
-                        <p className="mt-1">Код: {operatorBot.data.pendingLink.code}</p>
-                      </div>
-                    ) : null}
-                  </div>
-                  <div className="flex flex-wrap gap-2">
-                    <ActionButton variant="secondary" isLoading={isPending('operator-bot-link')} loadingLabel="..." onClick={() => void onCreateOperatorLink()}>
-                      Создать ссылку
-                    </ActionButton>
-                    {operatorBot.data.pendingLink ? (
-                      <ActionButton variant="quiet" onClick={() => void onCopyWebhook('operator-bot', operatorBot.data.pendingLink!.deepLink)}>Копировать link</ActionButton>
-                    ) : null}
-                    {operatorBot.data.binding ? (
-                      <ActionButton variant="danger" isLoading={isPending('operator-bot-unlink')} loadingLabel="..." onClick={() => void onUnlinkOperatorBot()}>
-                        Отвязать
-                      </ActionButton>
-                    ) : null}
-                  </div>
-                </div>
-                <div className="mt-4 grid gap-3 rounded-[10px] border border-dashed border-[#d8d8d8] bg-white p-4">
-                  <label className="text-sm text-[#5e5e5e]">
-                    <span className="mb-1 block text-xs font-medium text-[#8e8e8e]">Bot username</span>
-                    <input
-                      value={operatorBotDraft.botUsername}
-                      onChange={(event) => setOperatorBotDraft((state) => ({ ...state, botUsername: event.target.value }))}
-                      placeholder="my_operator_bot"
-                      className="w-full rounded-[10px] border border-[#ebebeb] bg-white px-4 py-3 text-[#292929] outline-none focus:border-[#8089a8]"
-                    />
-                  </label>
-                  <label className="text-sm text-[#5e5e5e]">
-                    <span className="mb-1 block text-xs font-medium text-[#8e8e8e]">Bot token</span>
-                    <input
-                      value={operatorBotDraft.botToken}
-                      onChange={(event) => setOperatorBotDraft((state) => ({ ...state, botToken: event.target.value }))}
-                      placeholder="123456:AA..."
-                      className="w-full rounded-[10px] border border-[#ebebeb] bg-white px-4 py-3 text-[#292929] outline-none focus:border-[#8089a8]"
-                    />
-                  </label>
-                  <label className="text-sm text-[#5e5e5e]">
-                    <span className="mb-1 block text-xs font-medium text-[#8e8e8e]">Webhook secret</span>
-                    <input
-                      value={operatorBotDraft.webhookSecret}
-                      onChange={(event) => setOperatorBotDraft((state) => ({ ...state, webhookSecret: event.target.value }))}
-                      placeholder="operator-secret-123"
-                      className="w-full rounded-[10px] border border-[#ebebeb] bg-white px-4 py-3 text-[#292929] outline-none focus:border-[#8089a8]"
-                    />
-                  </label>
-                  <div>
-                    <ActionButton variant="primary" isLoading={isPending('operator-bot-save')} loadingLabel="..." onClick={() => void onSaveOperatorBotSettings()}>
-                      Сохранить operator bot
-                    </ActionButton>
-                  </div>
-                </div>
-              </div>
-            </div>
-          ) : (
-            <EmptyState title="Статус operator bot недоступен" />
-          )}
         </SectionCard>
 
         <SectionCard title="Бот и FAQ">
@@ -552,6 +331,93 @@ export function SettingsPage() {
           ) : (
             <EmptyState title="Конфиг недоступен" />
           )}
+        </SectionCard>
+
+        <SectionCard title="Telegram operator bot">
+          <div className="space-y-4">
+            <div className="flex flex-wrap items-center gap-3">
+              {operatorBot.data?.binding ? (
+                <InlineStatusBadge tone="success" label={`Привязан: ${operatorBot.data.binding.telegramChatId}`} />
+              ) : (
+                <InlineStatusBadge tone="neutral" label="Не привязан" />
+              )}
+              {operatorBot.data?.tokenConfigured ? (
+                <InlineStatusBadge tone="success" label="Токен сохранен" />
+              ) : (
+                <InlineStatusBadge tone="neutral" label="Токен не сохранен" />
+              )}
+            </div>
+
+            {operatorBot.data?.operatorWebhookUrl ? (
+              <div className="rounded-[10px] border border-[#ebebeb] bg-[#faf8fc] px-4 py-3 text-sm text-[#5d566e]">
+                Webhook: {operatorBot.data.operatorWebhookUrl}
+              </div>
+            ) : null}
+
+            {operatorBot.data?.pendingLink?.deepLink ? (
+              <div className="rounded-[10px] border border-[#ebebeb] bg-white px-4 py-3">
+                <p className="text-xs font-medium uppercase tracking-[0.18em] text-[#8e8e8e]">Ссылка для привязки</p>
+                <a
+                  href={operatorBot.data.pendingLink.deepLink}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="mt-2 block break-all text-sm text-[#6d4aff] hover:underline"
+                >
+                  {operatorBot.data.pendingLink.deepLink}
+                </a>
+              </div>
+            ) : null}
+
+            <div className="flex flex-wrap gap-2">
+              <ActionButton variant="secondary" isLoading={isPending('operator-bot-link')} loadingLabel="..." onClick={() => void onCreateOperatorLink()}>
+                Создать ссылку
+              </ActionButton>
+              <ActionButton variant="quiet" isLoading={isPending('operator-bot-unlink')} loadingLabel="..." onClick={() => void onUnlinkOperatorBot()}>
+                Отвязать
+              </ActionButton>
+            </div>
+
+            <label className="block text-sm">
+              <span className="mb-1 block text-xs font-medium text-[#8e8e8e]">Bot username</span>
+              <input
+                value={operatorBotDraft.botUsername}
+                onChange={(event) => setOperatorBotDraft({ ...operatorBotDraft, botUsername: event.target.value })}
+                className="w-full rounded-[10px] border border-[#ebebeb] bg-white px-4 py-3 text-[#292929] outline-none focus:border-[#8089a8]"
+              />
+            </label>
+
+            <label className="block text-sm">
+              <span className="mb-1 block text-xs font-medium text-[#8e8e8e]">Bot token</span>
+              <input
+                type="password"
+                value={operatorBotDraft.botToken}
+                onChange={(event) => setOperatorBotDraft({ ...operatorBotDraft, botToken: event.target.value })}
+                placeholder={operatorBot.data?.tokenConfigured ? 'Сохранен, введите только если хотите заменить' : ''}
+                className="w-full rounded-[10px] border border-[#ebebeb] bg-white px-4 py-3 text-[#292929] outline-none focus:border-[#8089a8]"
+              />
+            </label>
+
+            <label className="block text-sm">
+              <span className="mb-1 block text-xs font-medium text-[#8e8e8e]">Webhook secret</span>
+              <input
+                value={operatorBotDraft.webhookSecret}
+                onChange={(event) => setOperatorBotDraft({ ...operatorBotDraft, webhookSecret: event.target.value })}
+                className="w-full rounded-[10px] border border-[#ebebeb] bg-white px-4 py-3 text-[#292929] outline-none focus:border-[#8089a8]"
+              />
+            </label>
+
+            <div className="flex flex-wrap items-center gap-3">
+              <ActionButton
+                variant={operatorBotDraft.enabled ? 'secondary' : 'quiet'}
+                onClick={() => setOperatorBotDraft({ ...operatorBotDraft, enabled: !operatorBotDraft.enabled })}
+              >
+                {operatorBotDraft.enabled ? 'Включен' : 'Выключен'}
+              </ActionButton>
+              <ActionButton variant="primary" isLoading={isPending('operator-bot-save')} loadingLabel="..." onClick={() => void onSaveOperatorBot()}>
+                Сохранить
+              </ActionButton>
+            </div>
+          </div>
         </SectionCard>
       </div>
     </section>

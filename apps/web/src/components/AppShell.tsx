@@ -1,7 +1,7 @@
 import { Outlet, Link, useRouter } from '@tanstack/react-router'
 import { useEffect } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
-import { clearToken, getToken, logout } from '../lib/api'
+import { apiUrl, clearToken, getToken, logout } from '../lib/api'
 import { useMe } from '../lib/queries'
 import { useUIStore } from '../stores/ui'
 
@@ -24,7 +24,7 @@ export function AppShell() {
   useEffect(() => {
     const token = getToken()
     if (!token) return
-    const events = new EventSource('/events')
+    const events = new EventSource(`${apiUrl('/events')}?token=${encodeURIComponent(token)}`)
     const refresh = () => {
       queryClient.invalidateQueries({ queryKey: ['dashboard'] })
       queryClient.invalidateQueries({ queryKey: ['conversations'] })
@@ -69,11 +69,7 @@ export function AppShell() {
       </div>
       <div className="grid min-h-screen w-full grid-cols-1 lg:grid-cols-[232px_minmax(0,1fr)]">
         <aside className="border-b border-[#e8e4ef] bg-gradient-to-b from-[#faf8fc] to-[#f2eef8] p-4 lg:sticky lg:top-0 lg:h-screen lg:overflow-y-auto lg:border-b-0 lg:border-r lg:border-[#e8e4ef]">
-          <div className="flex items-center gap-2">
-            <span className="h-2 w-2 rounded-full bg-[#8b5cf6] shadow-[0_0_8px_rgba(139,92,246,0.5)]" aria-hidden />
-            <h1 className="text-lg font-semibold tracking-tight text-[#3d3852]">Rendy CRM</h1>
-          </div>
-          <nav className="mt-6 grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-1">
+          <nav className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-1">
             {navItems.map((item) => (
               <Link
                 key={item.to}
@@ -86,8 +82,8 @@ export function AppShell() {
             ))}
           </nav>
           <div className="mt-6 rounded-lg border border-[#e5e0ed] bg-white/70 p-3 text-sm backdrop-blur-sm">
-            <p className="font-medium text-[#3d3852]">{me.data?.user.name ?? '...'}</p>
-            <p className="text-xs text-[#6e6a7a]">{me.data?.workspace.name ?? 'Workspace'}</p>
+            <p className="font-medium text-[#3d3852]">{me.data?.user?.name ?? '...'}</p>
+            <p className="text-xs text-[#6e6a7a]">{me.data?.workspace?.name ?? 'Workspace'}</p>
             <button onClick={onLogout} className="mt-2 text-xs text-[#6e6a7a] hover:text-[#3d3852]">
               Выйти
             </button>

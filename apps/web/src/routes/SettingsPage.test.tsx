@@ -79,7 +79,8 @@ describe('SettingsPage', () => {
           deepLink: 'https://t.me/rendycrm_operator_bot?start=link_123'
         },
         botUsername: 'rendycrm_operator_bot',
-        operatorWebhookUrl: 'http://127.0.0.1:8080/webhooks/telegram/operator'
+        operatorWebhookUrl: 'http://127.0.0.1:8080/webhooks/telegram/operator',
+        tokenConfigured: true
       }
     })
     mocks.useAvailability.mockReturnValue({
@@ -98,10 +99,9 @@ describe('SettingsPage', () => {
 
     render(<SettingsPage />)
 
-    expect(screen.getByText('@rendycrm_operator_bot')).toBeInTheDocument()
-    expect(screen.getByText('привязан')).toBeInTheDocument()
+    expect(screen.getByDisplayValue('rendycrm_operator_bot')).toBeInTheDocument()
+    expect(screen.getByText(/Привязан: tg-chat-1/)).toBeInTheDocument()
     expect(screen.getByText(/https:\/\/t\.me\/rendycrm_operator_bot\?start=link_123/)).toBeInTheDocument()
-    expect(screen.getByText(/tg-chat-1/)).toBeInTheDocument()
-    expect(screen.getByText(/Нормализован: 79991112233/)).toBeInTheDocument()
+    expect(screen.getByPlaceholderText('+7')).toBeInTheDocument()
   })
 })

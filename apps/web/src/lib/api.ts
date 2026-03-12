@@ -24,6 +24,13 @@ import type {
 } from './types'
 
 const TOKEN_KEY = 'rendycrm.token'
+const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL as string | undefined)?.trim().replace(/\/+$/, '') ?? ''
+
+export function apiUrl(path: string): string {
+  if (!API_BASE_URL) return path
+  if (path.startsWith('/')) return `${API_BASE_URL}${path}`
+  return `${API_BASE_URL}/${path}`
+}
 
 export function getToken(): string | null {
   try {
@@ -58,7 +65,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   }
   let response: Response
   try {
-    response = await fetch(path, { ...init, headers, credentials: 'same-origin' })
+    response = await fetch(apiUrl(path), { ...init, headers, credentials: 'include' })
   } catch (error) {
     if (error instanceof Error && error.message.toLowerCase().includes('failed to fetch')) {
       throw new Error(`Не удалось выполнить запрос ${path}. Проверьте backend и dev proxy.`)
@@ -79,6 +86,10 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   return data as T
 }
 
+function asArray<T>(value: T[] | null | undefined): T[] {
+  return Array.isArray(value) ? value : []
+}
+
 export async function login(email: string, password: string) {
   return request<{ token: string; user: { id: string; name: string; role: string } }>('/auth/login', {
     method: 'POST',
@@ -91,7 +102,14 @@ export async function logout() {
 }
 
 export async function getMe() {
-  return request<{ user: { id: string; name: string; email: string; role: string }; workspace: { id: string; name: string } }>('/auth/me')
+  const data = await request<{
+    user?: { id: string; name: string; email: string; role: string } | null
+    workspace?: { id: string; name: string } | null
+  }>('/auth/me')
+  return {
+    user: data.user ?? { id: '', name: '', email: '', role: '' },
+    workspace: data.workspace ?? { id: '', name: '' }
+  }
 }
 
 export async function getDashboard() {
@@ -99,11 +117,28 @@ export async function getDashboard() {
 }
 
 export async function getConversations() {
-  return request<{ items: Conversation[] }>('/conversations')
+  const data = await request<{ items?: Conversation[] | null }>('/conversations')
+  return { items: asArray(data.items) }
 }
 
 export async function getConversation(id: string) {
-  return request<{ conversation: Conversation; messages: Message[]; customer: Customer }>(`/conversations/${id}`)
+  const data = await request<{ conversation: Conversation; messages?: Message[] | null; customer?: Customer | null }>(`/conversations/${id}`)
+  return {
+    ...data,
+    messages: asArray(data.messages),
+    customer:
+      data.customer ??
+      ({
+        id: '',
+        name: '',
+        phone: '',
+        email: '',
+        notes: '',
+        lastVisitAt: '',
+        bookingCount: 0,
+        preferredChannel: ''
+      } as Customer)
+  }
 }
 
 export async function updateCustomer(id: string, payload: { name: string }) {
@@ -130,15 +165,33 @@ export async function reopenConversation(id: string) {
 }
 
 export async function getAvailability() {
-  return request<{ rules: AvailabilityRule[]; exceptions: AvailabilityException[]; slots: Slot[] }>('/availability')
+  const data = await request<{ rules?: AvailabilityRule[] | null; exceptions?: AvailabilityException[] | null; slots?: Slot[] | null }>('/availability')
+  return {
+    rules: asArray(data.rules),
+    exceptions: asArray(data.exceptions),
+    slots: asArray(data.slots)
+  }
 }
 
 export async function getSlotEditor(date: string) {
-  return request<SlotEditorResponse>(`/slots/editor?date=${encodeURIComponent(date)}`)
+  const data = await request<Partial<SlotEditorResponse>>(`/slots/editor?date=${encodeURIComponent(date)}`)
+  return {
+    settings: data.settings ?? {
+      workspaceId: '',
+      timezone: 'Europe/Moscow',
+      defaultDurationMinutes: 60,
+      generationHorizonDays: 30
+    },
+    colors: asArray(data.colors),
+    weekTemplates: asArray(data.weekTemplates),
+    daySlots: asArray(data.daySlots)
+  }
 }
 
 export async function getWeekSlots(date: string) {
-  return request<{ days: WeekSlotDay[] }>(`/slots/week?date=${encodeURIComponent(date)}`)
+  const data = await request<{ days?: WeekSlotDay[] | null }>(`/slots/week?date=${encodeURIComponent(date)}`)
+  const days = asArray(data.days).map((day) => ({ ...day, slots: asArray(day?.slots) }))
+  return { days }
 }
 
 export async function updateSlotSettings(payload: SlotSettings) {
@@ -244,7 +297,8 @@ export async function unblockDaySlot(id: string) {
 
 export async function getAvailableSlots(dateFrom: string, dateTo: string) {
   const search = new URLSearchParams({ date_from: dateFrom, date_to: dateTo })
-  return request<{ items: DailySlot[] }>(`/slots/available?${search.toString()}`)
+  const data = await request<{ items?: DailySlot[] | null }>(`/slots/available?${search.toString()}`)
+  return { items: asArray(data.items) }
 }
 
 export async function updateAvailabilityRules(rules: AvailabilityRule[]) {
@@ -274,7 +328,8 @@ export async function getBookings(status = 'all') {
     search.set('status', status)
   }
   const suffix = search.toString() ? `?${search.toString()}` : ''
-  return request<{ items: Booking[] }>(`/bookings${suffix}`)
+  const data = await request<{ items?: Booking[] | null }>(`/bookings${suffix}`)
+  return { items: asArray(data.items) }
 }
 
 export async function confirmBooking(id: string, amount: number, conversationId?: string) {
@@ -297,7 +352,8 @@ export async function rescheduleBooking(id: string, payload: { dailySlotId?: str
 }
 
 export async function getReviews() {
-  return request<{ items: Review[] }>('/reviews')
+  const data = await request<{ items?: Review[] | null }>('/reviews')
+  return { items: asArray(data.items) }
 }
 
 export async function updateReviewStatus(id: string, status: 'open' | 'resolved') {
@@ -312,7 +368,8 @@ export async function getAnalytics() {
 }
 
 export async function getChannels() {
-  return request<{ items: ChannelAccount[] }>('/settings/channels')
+  const data = await request<{ items?: ChannelAccount[] | null }>('/settings/channels')
+  return { items: asArray(data.items) }
 }
 
 export async function updateChannel(provider: string, payload: { connected: boolean; name: string }) {
@@ -333,7 +390,15 @@ export async function updateChannelBot(
 }
 
 export async function getMasterProfile() {
-  return request<MasterProfile>('/settings/master-profile')
+  const data = await request<MasterProfile | null>('/settings/master-profile')
+  return (
+    data ?? {
+      workspaceId: '',
+      masterPhoneRaw: '',
+      masterPhoneNormalized: '',
+      telegramEnabled: false
+    }
+  )
 }
 
 export async function updateMasterProfile(masterPhone: string) {
@@ -344,7 +409,17 @@ export async function updateMasterProfile(masterPhone: string) {
 }
 
 export async function getBotConfig() {
-  return request<{ config: BotConfig; faqItems: FAQItem[] }>('/settings/bot')
+  const data = await request<{ config?: BotConfig | null; faqItems?: FAQItem[] | null }>('/settings/bot')
+  return {
+    config: data.config ?? {
+      workspaceId: '',
+      autoReply: false,
+      handoffEnabled: false,
+      faqCount: 0,
+      tone: 'helpful'
+    },
+    faqItems: asArray(data.faqItems)
+  }
 }
 
 export async function updateBotConfig(config: BotConfig, faqItems: FAQItem[]) {
@@ -355,7 +430,16 @@ export async function updateBotConfig(config: BotConfig, faqItems: FAQItem[]) {
 }
 
 export async function getOperatorBotSettings() {
-  return request<OperatorBotSettings>('/settings/operator-bot')
+  const data = await request<OperatorBotSettings | null>('/settings/operator-bot')
+  return (
+    data ?? {
+      binding: null,
+      pendingLink: null,
+      botUsername: '',
+      operatorWebhookUrl: '',
+      tokenConfigured: false
+    }
+  )
 }
 
 export async function updateOperatorBotSettings(payload: {

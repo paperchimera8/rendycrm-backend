@@ -158,7 +158,7 @@ export function AvailabilityPage() {
     if (!week.data || !editor.data) return
     const normalizedDays = normalizeWeekDays(week.data.days)
     setDaysDraft(normalizedDays)
-    setDraftsByDate(buildDrafts(normalizedDays, editor.data.colors, editor.data.settings.defaultDurationMinutes || 60))
+    setDraftsByDate(buildDrafts(normalizedDays, editor.data.colors ?? [], editor.data.settings?.defaultDurationMinutes || 60))
   }, [week.data, editor.data])
 
   const onCreateDaySlot = async (slotDate: string, colorPresetId?: string) => {
