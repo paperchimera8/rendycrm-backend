@@ -89,6 +89,9 @@ func TestHandleAppServesStaticFilesAndRejectsMissingAssets(t *testing.T) {
 		if body := recorder.Body.String(); body != "console.log('ok')" {
 			t.Fatalf("unexpected asset body: %q", body)
 		}
+		if cache := recorder.Header().Get("Cache-Control"); cache != "public, max-age=31536000, immutable" {
+			t.Fatalf("unexpected asset cache control: %q", cache)
+		}
 	})
 
 	t.Run("missing asset returns 404", func(t *testing.T) {
@@ -111,6 +114,9 @@ func TestHandleAppServesStaticFilesAndRejectsMissingAssets(t *testing.T) {
 		}
 		if body := recorder.Body.String(); body != "<html>app</html>" {
 			t.Fatalf("unexpected fallback body: %q", body)
+		}
+		if cache := recorder.Header().Get("Cache-Control"); cache != "no-store" {
+			t.Fatalf("unexpected spa cache control: %q", cache)
 		}
 	})
 }

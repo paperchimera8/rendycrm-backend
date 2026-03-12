@@ -221,6 +221,13 @@ func (s *Server) handleApp(w http.ResponseWriter, r *http.Request) {
 	cleanPath := filepath.Clean("/" + strings.TrimSpace(r.URL.Path))
 	targetPath := filepath.Join(staticDir, filepath.FromSlash(strings.TrimPrefix(cleanPath, "/")))
 	if info, err := os.Stat(targetPath); err == nil && !info.IsDir() {
+		if isStaticAssetRequest(cleanPath) {
+			// Fingerprinted assets should be cached aggressively.
+			w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
+		} else if isIndexPath(cleanPath) {
+			// Never cache app shell html to avoid stale asset references after deploy.
+			w.Header().Set("Cache-Control", "no-store")
+		}
 		http.ServeFile(w, r, targetPath)
 		return
 	}
@@ -233,6 +240,7 @@ func (s *Server) handleApp(w http.ResponseWriter, r *http.Request) {
 		s.writeError(w, http.StatusNotFound, "not found")
 		return
 	}
+	w.Header().Set("Cache-Control", "no-store")
 	http.ServeFile(w, r, indexPath)
 }
 
@@ -246,6 +254,10 @@ func isStaticAssetRequest(path string) bool {
 	default:
 		return false
 	}
+}
+
+func isIndexPath(path string) bool {
+	return path == "/" || strings.EqualFold(path, "/index.html")
 }
 
 func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
