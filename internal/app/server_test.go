@@ -120,3 +120,39 @@ func TestHandleAppServesStaticFilesAndRejectsMissingAssets(t *testing.T) {
 		}
 	})
 }
+
+func TestServerServesAPIUnderPrefixWithoutFallingBackToSPA(t *testing.T) {
+	tmpDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(tmpDir, "index.html"), []byte("<html>app</html>"), 0o644); err != nil {
+		t.Fatalf("write index: %v", err)
+	}
+
+	server := &Server{cfg: Config{StaticDir: tmpDir}, mux: http.NewServeMux(), apiMux: http.NewServeMux()}
+	server.routes()
+
+	t.Run("api health works under prefix", func(t *testing.T) {
+		request := httptest.NewRequest(http.MethodGet, "/api/health", nil)
+		recorder := httptest.NewRecorder()
+		server.serveHTTP(recorder, request)
+
+		if recorder.Code != http.StatusOK {
+			t.Fatalf("expected 200, got %d", recorder.Code)
+		}
+		if body := recorder.Body.String(); body != "{\"status\":\"ok\"}\n" {
+			t.Fatalf("unexpected body: %q", body)
+		}
+	})
+
+	t.Run("missing api route returns 404 instead of index", func(t *testing.T) {
+		request := httptest.NewRequest(http.MethodGet, "/api/unknown", nil)
+		recorder := httptest.NewRecorder()
+		server.serveHTTP(recorder, request)
+
+		if recorder.Code != http.StatusNotFound {
+			t.Fatalf("expected 404, got %d", recorder.Code)
+		}
+		if body := recorder.Body.String(); body == "<html>app</html>" {
+			t.Fatalf("unexpected spa fallback body for api route")
+		}
+	})
+}
