@@ -7,9 +7,23 @@ Demo operator center with persistent runtime:
 - PostgreSQL as source of truth
 - Redis for sessions, events, and demo jobs
 
+## GitHub Auto-Deploy
+
+For services that deploy directly from GitHub, this repository should use the root [Dockerfile](/Users/vital/Documents/rendycrm-app/Dockerfile), not `docker-compose`.
+
+The app container serves the backend and the compiled frontend from one image.
+For that mode you need to provide external infrastructure through environment variables:
+
+- `POSTGRES_DSN`
+- `REDIS_ADDR`
+- `APP_ENCRYPTION_SECRET`
+- `PUBLIC_BASE_URL`
+
 ## Run With Docker Compose
 
-For local `docker compose`, the runtime topology is:
+For VPS or local `docker compose`, use [deploy/docker-compose.vps.yml](/Users/vital/Documents/rendycrm-app/deploy/docker-compose.vps.yml).
+
+The runtime topology is:
 
 - `web` serves the compiled frontend SPA through nginx
 - `web` proxies `/api/*` to `api`
@@ -19,13 +33,13 @@ For local `docker compose`, the runtime topology is:
 Start everything:
 
 ```bash
-docker compose up -d --build
+docker compose -f deploy/docker-compose.vps.yml up -d --build
 ```
 
 Stop everything:
 
 ```bash
-docker compose down
+docker compose -f deploy/docker-compose.vps.yml down
 ```
 
 Main env knobs for compose:
