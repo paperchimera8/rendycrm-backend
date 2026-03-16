@@ -2,7 +2,7 @@ FROM node:20-alpine AS builder
 WORKDIR /app
 
 ARG VITE_APP_BASE_PATH=/app/
-ARG VITE_API_BASE_URL=/app/api
+ARG VITE_API_BASE_URL=/api
 ENV VITE_APP_BASE_PATH=${VITE_APP_BASE_PATH}
 ENV VITE_API_BASE_URL=${VITE_API_BASE_URL}
 
@@ -15,7 +15,7 @@ RUN npm run build
 FROM nginx:1.27-alpine
 ENV NGINX_PORT=8080
 ENV APP_BASE_PATH=/app
-ENV API_BASE_URL=/app/api
+ENV API_BASE_URL=/api
 ENV API_UPSTREAM=http://api:3000
 
 COPY apps/web/nginx.conf /etc/nginx/nginx.conf

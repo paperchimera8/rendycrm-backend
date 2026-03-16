@@ -35,5 +35,5 @@ export function stripAppBasePath(pathname: string): string {
 }
 
 export function defaultApiBaseUrl(): string {
-  return APP_BASE_PATH === '/' ? '/api' : `${APP_BASE_PATH}/api`
+  return '/api'
 }

@@ -9,7 +9,7 @@ For the CRM container, use:
 
 ```env
 APP_BASE_PATH=/app
-PUBLIC_BASE_URL=https://rendycrm.ru/app/api
+PUBLIC_BASE_URL=https://rendycrm.ru/api
 ```
 
 When building the root Docker image, pass:
@@ -17,7 +17,7 @@ When building the root Docker image, pass:
 ```bash
 docker build \
   --build-arg VITE_APP_BASE_PATH=/app/ \
-  --build-arg VITE_API_BASE_URL=/app/api \
+  --build-arg VITE_API_BASE_URL=/api \
   -t rendycrm-backend .
 ```
 
@@ -32,7 +32,7 @@ The example already includes:
 - `rendycrm.ru` as the main domain
 - redirect from `www.rendycrm.ru` to `rendycrm.ru`
 
-Why `PUBLIC_BASE_URL` includes `/app/api`:
+Why `PUBLIC_BASE_URL` includes `/api`:
 
 - Telegram webhook URLs are formed from `PUBLIC_BASE_URL + /webhooks/...`
-- when the app is mounted under `/app`, API traffic lives under `/app/api`
+- the CRM UI lives under `/app`, but API traffic is exposed separately under `/api`

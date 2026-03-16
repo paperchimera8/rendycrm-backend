@@ -1,7 +1,7 @@
 FROM node:20-alpine AS web-builder
 WORKDIR /app/apps/web
 ARG VITE_APP_BASE_PATH=/app/
-ARG VITE_API_BASE_URL=/app/api
+ARG VITE_API_BASE_URL=/api
 ENV VITE_APP_BASE_PATH=${VITE_APP_BASE_PATH}
 ENV VITE_API_BASE_URL=${VITE_API_BASE_URL}
 COPY apps/web/package.json apps/web/package-lock.json ./
@@ -32,7 +32,7 @@ EXPOSE 3000
 ENV PORT=3000
 ENV STATIC_DIR=/web
 ENV APP_BASE_PATH=/app
-ENV PUBLIC_BASE_URL=https://rendycrm.ru/app/api
+ENV PUBLIC_BASE_URL=https://rendycrm.ru/api
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
   CMD curl -f http://localhost:3000/health || exit 1
 ENTRYPOINT ["/api"]
