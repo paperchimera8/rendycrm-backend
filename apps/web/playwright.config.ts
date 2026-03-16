@@ -5,7 +5,7 @@ import { defineConfig } from '@playwright/test'
 const webRoot = path.dirname(fileURLToPath(import.meta.url))
 const repoRoot = path.resolve(webRoot, '../..')
 
-const apiCommand = 'GOCACHE=/tmp/go-build-cache PORT=8080 APP_ENCRYPTION_SECRET=test-encryption-secret ENABLE_DEMO_SEED=1 go run ./cmd/api'
+const apiCommand = 'GOCACHE=/tmp/go-build-cache PORT=3000 APP_ENCRYPTION_SECRET=test-encryption-secret ENABLE_DEMO_SEED=1 go run ./cmd/api'
 
 const webCommand = 'npm run dev -- --host 127.0.0.1'
 
@@ -23,7 +23,7 @@ export default defineConfig({
     {
       command: apiCommand,
       cwd: repoRoot,
-      url: 'http://127.0.0.1:8080/health',
+      url: 'http://127.0.0.1:3000/health',
       reuseExistingServer: false,
       timeout: 120_000
     },

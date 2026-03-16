@@ -5,6 +5,8 @@ services:
       POSTGRES_DB: rendycrm
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres"]
       interval: 5s
@@ -14,6 +16,8 @@ services:
 
   redis:
     image: redis:7
+    volumes:
+      - redis_data:/data
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
@@ -26,9 +30,10 @@ services:
       context: .
       dockerfile: Dockerfile
     ports:
-      - "${PUBLIC_PORT:-3000}:3000"
+      - "${API_PORT:-3000}:3000"
     environment:
       PORT: "3000"
+      STATIC_DIR: ""
       POSTGRES_DSN: postgres://postgres:${POSTGRES_PASSWORD:-postgres}@postgres:5432/rendycrm?sslmode=disable
       REDIS_ADDR: redis:6379
       PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-http://localhost:3000}
@@ -40,3 +45,24 @@ services:
       redis:
         condition: service_healthy
     restart: unless-stopped
+
+  web:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+      args:
+        VITE_API_BASE_URL: ${VITE_API_BASE_URL:-/api}
+    ports:
+      - "${WEB_PORT:-8081}:${NGINX_PORT:-8080}"
+    environment:
+      NGINX_PORT: ${NGINX_PORT:-8080}
+      API_BASE_URL: ${API_BASE_URL:-/api}
+      API_UPSTREAM: ${API_UPSTREAM:-http://api:3000}
+    depends_on:
+      api:
+        condition: service_started
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+  redis_data:

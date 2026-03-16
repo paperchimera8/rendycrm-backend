@@ -24,7 +24,9 @@ import type {
 } from './types'
 
 const TOKEN_KEY = 'rendycrm.token'
-const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL as string | undefined)?.trim().replace(/\/+$/, '') ?? ''
+const runtimeApiBase = window.RUNTIME_CONFIG?.API_BASE_URL?.trim()
+const envApiBase = import.meta.env.VITE_API_BASE_URL?.trim()
+const API_BASE_URL = (runtimeApiBase || envApiBase || '/api').replace(/\/+$/, '')
 
 export function apiUrl(path: string): string {
   if (!API_BASE_URL) return path
