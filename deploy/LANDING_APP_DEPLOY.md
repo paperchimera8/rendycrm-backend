@@ -21,6 +21,8 @@ docker build \
   -t rendycrm-backend .
 ```
 
+These values are also baked into the default Dockerfiles now, so auto-deploy can work without manually adding build args.
+
 The shared nginx example is in:
 
 - `deploy/nginx-landing-crm-app.conf.example`
