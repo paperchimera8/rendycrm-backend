@@ -54,7 +54,7 @@ func (s *Server) Handler() http.Handler {
 }
 
 func (s *Server) serveHTTP(w http.ResponseWriter, r *http.Request) {
-	if apiRequest, ok := stripAPIPrefix(r); ok {
+	if apiRequest, ok := s.stripAPIRequest(r); ok {
 		if _, pattern := s.apiMux.Handler(apiRequest); pattern == "" {
 			s.writeError(w, http.StatusNotFound, "not found")
 			return
@@ -115,16 +115,32 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("/", s.handleApp)
 }
 
-func stripAPIPrefix(r *http.Request) (*http.Request, bool) {
+func (s *Server) stripAPIRequest(r *http.Request) (*http.Request, bool) {
 	if r == nil {
 		return nil, false
 	}
-	if r.URL.Path != "/api" && !strings.HasPrefix(r.URL.Path, "/api/") {
+	prefixes := []string{"/api"}
+	if s.cfg.AppBasePath != "" {
+		prefixes = append([]string{s.cfg.AppBasePath + "/api"}, prefixes...)
+	}
+	for _, prefix := range prefixes {
+		if stripped, ok := stripPathPrefix(r, prefix); ok {
+			return stripped, true
+		}
+	}
+	return nil, false
+}
+
+func stripPathPrefix(r *http.Request, prefix string) (*http.Request, bool) {
+	if r == nil {
+		return nil, false
+	}
+	if r.URL.Path != prefix && !strings.HasPrefix(r.URL.Path, prefix+"/") {
 		return nil, false
 	}
 	cloned := r.Clone(r.Context())
 	urlCopy := *r.URL
-	strippedPath := strings.TrimPrefix(r.URL.Path, "/api")
+	strippedPath := strings.TrimPrefix(r.URL.Path, prefix)
 	if strippedPath == "" {
 		strippedPath = "/"
 	}
@@ -254,7 +270,16 @@ func (s *Server) handleApp(w http.ResponseWriter, r *http.Request) {
 		s.writeError(w, http.StatusNotFound, "not found")
 		return
 	}
-	cleanPath := filepath.Clean("/" + strings.TrimSpace(r.URL.Path))
+	requestPath := strings.TrimSpace(r.URL.Path)
+	if s.cfg.AppBasePath != "" {
+		strippedPath, ok := stripMountedPath(requestPath, s.cfg.AppBasePath)
+		if !ok {
+			s.writeError(w, http.StatusNotFound, "not found")
+			return
+		}
+		requestPath = strippedPath
+	}
+	cleanPath := filepath.Clean("/" + requestPath)
 	targetPath := filepath.Join(staticDir, filepath.FromSlash(strings.TrimPrefix(cleanPath, "/")))
 	if info, err := os.Stat(targetPath); err == nil && !info.IsDir() {
 		if isStaticAssetRequest(cleanPath) {
@@ -278,6 +303,22 @@ func (s *Server) handleApp(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Cache-Control", "no-store")
 	http.ServeFile(w, r, indexPath)
+}
+
+func stripMountedPath(path string, mount string) (string, bool) {
+	if mount == "" {
+		if strings.TrimSpace(path) == "" {
+			return "/", true
+		}
+		return path, true
+	}
+	if path == mount {
+		return "/", true
+	}
+	if strings.HasPrefix(path, mount+"/") {
+		return strings.TrimPrefix(path, mount), true
+	}
+	return "", false
 }
 
 func isStaticAssetRequest(path string) bool {

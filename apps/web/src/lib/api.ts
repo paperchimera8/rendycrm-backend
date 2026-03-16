@@ -22,11 +22,12 @@ import type {
   Slot,
   WeekSlotDay
 } from './types'
+import { appUrl, defaultApiBaseUrl, stripAppBasePath } from './basePath'
 
 const TOKEN_KEY = 'rendycrm.token'
 const runtimeApiBase = window.RUNTIME_CONFIG?.API_BASE_URL?.trim()
 const envApiBase = import.meta.env.VITE_API_BASE_URL?.trim()
-const API_BASE_URL = (runtimeApiBase || envApiBase || '/api').replace(/\/+$/, '')
+const API_BASE_URL = (runtimeApiBase || envApiBase || defaultApiBaseUrl()).replace(/\/+$/, '')
 
 export function apiUrl(path: string): string {
   if (!API_BASE_URL) return path
@@ -78,8 +79,8 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   if (!response.ok) {
     if (response.status === 401) {
       clearToken()
-      if (typeof window !== 'undefined' && !window.location.pathname.startsWith('/login')) {
-        window.location.assign('/login')
+      if (typeof window !== 'undefined' && stripAppBasePath(window.location.pathname) !== '/login') {
+        window.location.assign(appUrl('/login'))
       }
       throw new Error(data.error ?? 'Сессия истекла. Войдите снова.')
     }

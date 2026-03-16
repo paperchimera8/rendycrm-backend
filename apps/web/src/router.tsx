@@ -9,6 +9,7 @@ import { AvailabilityPage } from './routes/AvailabilityPage'
 import { ReviewsPage } from './routes/ReviewsPage'
 import { AnalyticsPage } from './routes/AnalyticsPage'
 import { SettingsPage } from './routes/SettingsPage'
+import { APP_BASE_PATH, appUrl, stripAppBasePath } from './lib/basePath'
 import { getToken } from './lib/api'
 
 export interface RouterContext {
@@ -31,7 +32,7 @@ const appRoute = createRoute({
   getParentRoute: () => rootRoute,
   id: 'app',
   beforeLoad: async ({ location }) => {
-    if (!getToken() && location.pathname !== '/login') {
+    if (!getToken() && stripAppBasePath(location.pathname) !== '/login') {
       throw redirect({ to: '/login' })
     }
   },
@@ -103,12 +104,13 @@ const routeTree = rootRoute.addChildren([
 
 export const router = createRouter({
   routeTree,
+  basepath: APP_BASE_PATH,
   context: {
     queryClient: undefined as never
   },
   defaultPreload: 'intent',
   defaultErrorComponent: RouterErrorView,
-  defaultNotFoundComponent: () => <RouterErrorView error={new Error('Page not found')} reset={() => window.location.assign('/')} info={{ componentStack: '' }} />
+  defaultNotFoundComponent: () => <RouterErrorView error={new Error('Page not found')} reset={() => window.location.assign(appUrl('/'))} info={{ componentStack: '' }} />
 })
 
 declare module '@tanstack/react-router' {
