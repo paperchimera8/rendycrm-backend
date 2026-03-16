@@ -31,6 +31,7 @@ type Server struct {
 	cfg     Config
 	runtime *Runtime
 	mux     *http.ServeMux
+	apiMux  *http.ServeMux
 }
 
 func NewServer(ctx context.Context, cfg Config) (*Server, error) {
@@ -38,7 +39,7 @@ func NewServer(ctx context.Context, cfg Config) (*Server, error) {
 	if err != nil {
 		return nil, err
 	}
-	server := &Server{cfg: cfg, runtime: runtime, mux: http.NewServeMux()}
+	server := &Server{cfg: cfg, runtime: runtime, mux: http.NewServeMux(), apiMux: http.NewServeMux()}
 	server.routes()
 	server.startWorker(ctx)
 	return server, nil
@@ -49,53 +50,88 @@ func (s *Server) Close() error {
 }
 
 func (s *Server) Handler() http.Handler {
-	return s.cors(s.mux)
+	return s.cors(http.HandlerFunc(s.serveHTTP))
+}
+
+func (s *Server) serveHTTP(w http.ResponseWriter, r *http.Request) {
+	if apiRequest, ok := stripAPIPrefix(r); ok {
+		if _, pattern := s.apiMux.Handler(apiRequest); pattern == "" {
+			s.writeError(w, http.StatusNotFound, "not found")
+			return
+		}
+		s.apiMux.ServeHTTP(w, apiRequest)
+		return
+	}
+	if _, pattern := s.apiMux.Handler(r); pattern != "" {
+		s.apiMux.ServeHTTP(w, r)
+		return
+	}
+	s.mux.ServeHTTP(w, r)
 }
 
 func (s *Server) routes() {
-	s.mux.HandleFunc("/health", func(w http.ResponseWriter, _ *http.Request) {
+	s.apiMux.HandleFunc("/health", func(w http.ResponseWriter, _ *http.Request) {
 		s.writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 	})
-	s.mux.HandleFunc("/auth/login", s.handleLogin)
-	s.mux.HandleFunc("/auth/logout", s.requireAuth(s.handleLogout))
-	s.mux.HandleFunc("/auth/me", s.requireAuth(s.handleMe))
-	s.mux.HandleFunc("/dashboard", s.requireAuth(s.handleDashboard))
-	s.mux.HandleFunc("/conversations", s.requireAuth(s.handleConversations))
-	s.mux.HandleFunc("/conversations/", s.requireAuth(s.handleConversationByID))
-	s.mux.HandleFunc("/customers/", s.requireAuth(s.handleCustomerByID))
-	s.mux.HandleFunc("/availability", s.requireAuth(s.handleAvailability))
-	s.mux.HandleFunc("/availability/rules", s.requireAuth(s.handleAvailabilityRules))
-	s.mux.HandleFunc("/availability/exceptions", s.requireAuth(s.handleAvailabilityExceptions))
-	s.mux.HandleFunc("/slots/editor", s.requireAuth(s.handleSlotsEditor))
-	s.mux.HandleFunc("/slots/week", s.requireAuth(s.handleWeekSlots))
-	s.mux.HandleFunc("/slots/settings", s.requireAuth(s.handleSlotSettings))
-	s.mux.HandleFunc("/slots/colors/reorder", s.requireAuth(s.handleSlotColorsReorder))
-	s.mux.HandleFunc("/slots/colors", s.requireAuth(s.handleSlotColors))
-	s.mux.HandleFunc("/slots/colors/", s.requireAuth(s.handleSlotColorByID))
-	s.mux.HandleFunc("/slots/templates/reorder", s.requireAuth(s.handleSlotTemplatesReorder))
-	s.mux.HandleFunc("/slots/templates", s.requireAuth(s.handleSlotTemplates))
-	s.mux.HandleFunc("/slots/templates/", s.requireAuth(s.handleSlotTemplateByID))
-	s.mux.HandleFunc("/slots/day-slots/move", s.requireAuth(s.handleDaySlotMove))
-	s.mux.HandleFunc("/slots/day-slots/reorder", s.requireAuth(s.handleDaySlotsReorder))
-	s.mux.HandleFunc("/slots/day-slots", s.requireAuth(s.handleDaySlots))
-	s.mux.HandleFunc("/slots/day-slots/", s.requireAuth(s.handleDaySlotByID))
-	s.mux.HandleFunc("/slots/available", s.requireAuth(s.handleAvailableSlots))
-	s.mux.HandleFunc("/slots/", s.requireAuth(s.handleSlotByID))
-	s.mux.HandleFunc("/slot-holds/", s.requireAuth(s.handleSlotHoldByID))
-	s.mux.HandleFunc("/bookings", s.requireAuth(s.handleBookings))
-	s.mux.HandleFunc("/bookings/", s.requireAuth(s.handleBookingByID))
-	s.mux.HandleFunc("/reviews", s.requireAuth(s.handleReviews))
-	s.mux.HandleFunc("/reviews/", s.requireAuth(s.handleReviewByID))
-	s.mux.HandleFunc("/analytics/overview", s.requireAuth(s.handleAnalytics))
-	s.mux.HandleFunc("/settings/channels", s.requireAuth(s.handleChannels))
-	s.mux.HandleFunc("/settings/channels/", s.requireAuth(s.handleChannelByProvider))
-	s.mux.HandleFunc("/settings/master-profile", s.requireAuth(s.handleMasterProfile))
-	s.mux.HandleFunc("/settings/bot", s.requireAuth(s.handleBotConfig))
-	s.mux.HandleFunc("/settings/operator-bot", s.requireAuth(s.handleOperatorBotSettings))
-	s.mux.HandleFunc("/settings/operator-bot/", s.requireAuth(s.handleOperatorBotSettings))
-	s.mux.HandleFunc("/events", s.requireAuth(s.handleEvents))
-	s.mux.HandleFunc("/webhooks/", s.handleWebhook)
+	s.apiMux.HandleFunc("/auth/login", s.handleLogin)
+	s.apiMux.HandleFunc("/auth/logout", s.requireAuth(s.handleLogout))
+	s.apiMux.HandleFunc("/auth/me", s.requireAuth(s.handleMe))
+	s.apiMux.HandleFunc("/dashboard", s.requireAuth(s.handleDashboard))
+	s.apiMux.HandleFunc("/conversations", s.requireAuth(s.handleConversations))
+	s.apiMux.HandleFunc("/conversations/", s.requireAuth(s.handleConversationByID))
+	s.apiMux.HandleFunc("/customers/", s.requireAuth(s.handleCustomerByID))
+	s.apiMux.HandleFunc("/availability", s.requireAuth(s.handleAvailability))
+	s.apiMux.HandleFunc("/availability/rules", s.requireAuth(s.handleAvailabilityRules))
+	s.apiMux.HandleFunc("/availability/exceptions", s.requireAuth(s.handleAvailabilityExceptions))
+	s.apiMux.HandleFunc("/slots/editor", s.requireAuth(s.handleSlotsEditor))
+	s.apiMux.HandleFunc("/slots/week", s.requireAuth(s.handleWeekSlots))
+	s.apiMux.HandleFunc("/slots/settings", s.requireAuth(s.handleSlotSettings))
+	s.apiMux.HandleFunc("/slots/colors/reorder", s.requireAuth(s.handleSlotColorsReorder))
+	s.apiMux.HandleFunc("/slots/colors", s.requireAuth(s.handleSlotColors))
+	s.apiMux.HandleFunc("/slots/colors/", s.requireAuth(s.handleSlotColorByID))
+	s.apiMux.HandleFunc("/slots/templates/reorder", s.requireAuth(s.handleSlotTemplatesReorder))
+	s.apiMux.HandleFunc("/slots/templates", s.requireAuth(s.handleSlotTemplates))
+	s.apiMux.HandleFunc("/slots/templates/", s.requireAuth(s.handleSlotTemplateByID))
+	s.apiMux.HandleFunc("/slots/day-slots/move", s.requireAuth(s.handleDaySlotMove))
+	s.apiMux.HandleFunc("/slots/day-slots/reorder", s.requireAuth(s.handleDaySlotsReorder))
+	s.apiMux.HandleFunc("/slots/day-slots", s.requireAuth(s.handleDaySlots))
+	s.apiMux.HandleFunc("/slots/day-slots/", s.requireAuth(s.handleDaySlotByID))
+	s.apiMux.HandleFunc("/slots/available", s.requireAuth(s.handleAvailableSlots))
+	s.apiMux.HandleFunc("/slots/", s.requireAuth(s.handleSlotByID))
+	s.apiMux.HandleFunc("/slot-holds/", s.requireAuth(s.handleSlotHoldByID))
+	s.apiMux.HandleFunc("/bookings", s.requireAuth(s.handleBookings))
+	s.apiMux.HandleFunc("/bookings/", s.requireAuth(s.handleBookingByID))
+	s.apiMux.HandleFunc("/reviews", s.requireAuth(s.handleReviews))
+	s.apiMux.HandleFunc("/reviews/", s.requireAuth(s.handleReviewByID))
+	s.apiMux.HandleFunc("/analytics/overview", s.requireAuth(s.handleAnalytics))
+	s.apiMux.HandleFunc("/settings/channels", s.requireAuth(s.handleChannels))
+	s.apiMux.HandleFunc("/settings/channels/", s.requireAuth(s.handleChannelByProvider))
+	s.apiMux.HandleFunc("/settings/master-profile", s.requireAuth(s.handleMasterProfile))
+	s.apiMux.HandleFunc("/settings/bot", s.requireAuth(s.handleBotConfig))
+	s.apiMux.HandleFunc("/settings/operator-bot", s.requireAuth(s.handleOperatorBotSettings))
+	s.apiMux.HandleFunc("/settings/operator-bot/", s.requireAuth(s.handleOperatorBotSettings))
+	s.apiMux.HandleFunc("/events", s.requireAuth(s.handleEvents))
+	s.apiMux.HandleFunc("/webhooks/", s.handleWebhook)
 	s.mux.HandleFunc("/", s.handleApp)
+}
+
+func stripAPIPrefix(r *http.Request) (*http.Request, bool) {
+	if r == nil {
+		return nil, false
+	}
+	if r.URL.Path != "/api" && !strings.HasPrefix(r.URL.Path, "/api/") {
+		return nil, false
+	}
+	cloned := r.Clone(r.Context())
+	urlCopy := *r.URL
+	strippedPath := strings.TrimPrefix(r.URL.Path, "/api")
+	if strippedPath == "" {
+		strippedPath = "/"
+	}
+	urlCopy.Path = strippedPath
+	urlCopy.RawPath = ""
+	cloned.URL = &urlCopy
+	return cloned, true
 }
 
 func (s *Server) startWorker(ctx context.Context) {
