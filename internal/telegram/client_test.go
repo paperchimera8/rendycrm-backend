@@ -127,3 +127,38 @@ func TestSendTextReturnsTelegramDescriptionOn400(t *testing.T) {
 		t.Fatalf("unexpected retriable flag: %+v", apiErr)
 	}
 }
+
+func TestSendTextRetriesOnTelegramErrorInside200Response(t *testing.T) {
+	var attempts atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		current := attempts.Add(1)
+		w.WriteHeader(http.StatusOK)
+		if current == 1 {
+			_, _ = w.Write([]byte(`{"ok":false,"error_code":429,"description":"Too Many Requests","parameters":{"retry_after":0}}`))
+			return
+		}
+		_, _ = w.Write([]byte(`{"ok":true,"result":{"message_id":321}}`))
+	}))
+	defer server.Close()
+
+	client := NewAPIClient(server.URL)
+	response, err := client.SendText(context.Background(), "token", SendMessageRequest{
+		ChatID: "1",
+		Text:   "hello",
+	})
+	if err != nil {
+		t.Fatalf("send text: %v", err)
+	}
+	if response.MessageID != 321 {
+		t.Fatalf("unexpected message id: %+v", response)
+	}
+	if attempts.Load() < 2 {
+		t.Fatalf("expected retry, got %d attempts", attempts.Load())
+	}
+}
+
+func TestIsRetriableErrorRejectsGenericErrors(t *testing.T) {
+	if IsRetriableError(errors.New("boom")) {
+		t.Fatal("expected generic error to be non-retriable")
+	}
+}
