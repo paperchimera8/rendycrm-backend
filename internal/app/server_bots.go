@@ -242,11 +242,8 @@ func (s *Server) handleTelegramOperatorWebhook(w http.ResponseWriter, r *http.Re
 		s.writeError(w, http.StatusBadRequest, "invalid telegram update")
 		return
 	}
-	if err := s.handleTelegramOperatorUpdate(r.Context(), account, update); err != nil {
-		s.writeError(w, http.StatusInternalServerError, "failed to process operator update")
-		return
-	}
 	s.writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+	s.processTelegramOperatorUpdateAsync(account, update)
 }
 
 func parseOperatorTelegramUpdate(update telegramUpdate) (chatID string, userID string, text string, err error) {
@@ -554,11 +551,28 @@ func (s *Server) handleTelegramClientWebhook(w http.ResponseWriter, r *http.Requ
 		s.writeError(w, http.StatusBadRequest, "invalid telegram update")
 		return
 	}
-	if err := s.handleTelegramClientUpdate(r.Context(), account, update); err != nil {
-		s.writeError(w, http.StatusInternalServerError, "failed to receive telegram inbound")
-		return
-	}
 	s.writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+	s.processTelegramClientUpdateAsync(account, update)
+}
+
+func (s *Server) processTelegramClientUpdateAsync(account ChannelAccount, update telegram.Update) {
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		if err := s.handleTelegramClientUpdate(ctx, account, update); err != nil {
+			log.Printf("telegram webhook bot=client process error account_id=%s update_id=%d: %v", account.ID, update.UpdateID, err)
+		}
+	}()
+}
+
+func (s *Server) processTelegramOperatorUpdateAsync(account ChannelAccount, update telegram.Update) {
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		if err := s.handleTelegramOperatorUpdate(ctx, account, update); err != nil {
+			log.Printf("telegram webhook bot=operator process error update_id=%d: %v", update.UpdateID, err)
+		}
+	}()
 }
 
 func (s *Server) handleWhatsAppWebhook(w http.ResponseWriter, r *http.Request, channelAccountID, secret string) {

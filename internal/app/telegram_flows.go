@@ -99,6 +99,7 @@ func telegramButtonLabel(command string) string {
 
 const telegramCallbackActionCooldown = 10 * time.Second
 const telegramInboundDeliveryCooldown = 2 * time.Minute
+const telegramClientStartPromptCooldown = 2 * time.Minute
 
 func telegramCallbackActionKey(accountID string, botKind ChannelKind, chatID string, messageID int64, data string) string {
 	hash := sha256.Sum256([]byte(strings.TrimSpace(data)))
@@ -129,6 +130,16 @@ func telegramInboundDeliveryKey(accountID string, botKind ChannelKind, chatID st
 		strings.TrimSpace(string(botKind)),
 		strings.TrimSpace(chatID),
 		messageID,
+	)
+}
+
+func telegramClientPromptKey(accountID, chatID, text string) string {
+	hash := sha256.Sum256([]byte(strings.TrimSpace(text)))
+	return fmt.Sprintf(
+		"tg:prompt:%s:%s:%s",
+		strings.TrimSpace(accountID),
+		strings.TrimSpace(chatID),
+		hex.EncodeToString(hash[:8]),
 	)
 }
 
@@ -228,6 +239,13 @@ func (s *Server) promptTelegramMasterPhone(ctx context.Context, account ChannelA
 	text := telegramClientMasterPhonePromptText()
 	if welcome {
 		text = telegramClientWelcomeText()
+	}
+	freshPrompt, err := s.runtime.redis.SetNX(ctx, telegramClientPromptKey(account.ID, chatID, text), "1", telegramClientStartPromptCooldown).Result()
+	if err != nil {
+		return err
+	}
+	if !freshPrompt {
+		return nil
 	}
 	return s.enqueueTelegramOutbound(ctx, account, OutboundKindTelegramSendInline, "", "", TelegramOutboundPayload{
 		ChatID: chatID,

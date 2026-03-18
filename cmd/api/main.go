@@ -11,7 +11,7 @@ import (
 	"github.com/vital/rendycrm-app/internal/app"
 )
 
-const buildMarker = "telegram-debug-20260318e"
+const buildMarker = "telegram-debug-20260318f"
 
 func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
