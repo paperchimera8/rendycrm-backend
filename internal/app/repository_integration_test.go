@@ -559,6 +559,56 @@ func TestOperatorBotLinkLifecycle(t *testing.T) {
 	}
 }
 
+func TestClaimNextOutboundMessageSkipsFreshProcessingRows(t *testing.T) {
+	repo, db, workspaceID, _, cleanup := newIntegrationRepository(t, "Europe/Moscow")
+	defer cleanup()
+
+	seedInboxChannelAccount(t, db, workspaceID, "cha_tg", ChannelTelegram, "telegram-secret")
+
+	item, err := repo.EnqueueOutboundMessage(context.Background(), OutboundMessage{
+		WorkspaceID:      workspaceID,
+		Channel:          ChannelTelegram,
+		ChannelKind:      ChannelKindTelegramClient,
+		ChannelAccountID: "cha_tg",
+		Kind:             OutboundKindTelegramSendInline,
+	}, TelegramOutboundPayload{
+		ChatID: "1348661149",
+		Text:   "hello",
+	})
+	if err != nil {
+		t.Fatalf("enqueue outbound: %v", err)
+	}
+
+	claimed, err := repo.ClaimNextOutboundMessage(context.Background())
+	if err != nil {
+		t.Fatalf("claim outbound: %v", err)
+	}
+	if claimed.ID != item.ID {
+		t.Fatalf("expected claimed id %s, got %s", item.ID, claimed.ID)
+	}
+
+	_, err = repo.ClaimNextOutboundMessage(context.Background())
+	if err != sql.ErrNoRows {
+		t.Fatalf("expected no rows for fresh processing item, got %v", err)
+	}
+
+	if _, err := db.ExecContext(context.Background(), `
+		UPDATE outbound_messages
+		SET updated_at = NOW() - INTERVAL '3 minutes'
+		WHERE id = $1
+	`, item.ID); err != nil {
+		t.Fatalf("age processing item: %v", err)
+	}
+
+	reclaimed, err := repo.ClaimNextOutboundMessage(context.Background())
+	if err != nil {
+		t.Fatalf("reclaim stale processing outbound: %v", err)
+	}
+	if reclaimed.ID != item.ID {
+		t.Fatalf("expected reclaimed id %s, got %s", item.ID, reclaimed.ID)
+	}
+}
+
 func TestOperatorBotSettingsUsesSavedBotUsernameForPendingLink(t *testing.T) {
 	repo, db, workspaceID, _, cleanup := newIntegrationRepository(t, "Europe/Moscow")
 	defer cleanup()

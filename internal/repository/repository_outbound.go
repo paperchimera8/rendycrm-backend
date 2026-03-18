@@ -13,6 +13,8 @@ import (
 	. "github.com/vital/rendycrm-app/internal/domain"
 )
 
+const outboundProcessingLease = 2 * time.Minute
+
 func defaultChannelKind(provider ChannelProvider) ChannelKind {
 	switch provider {
 	case ChannelTelegram:
@@ -437,8 +439,11 @@ func (r *Repository) ClaimNextOutboundMessage(ctx context.Context) (OutboundMess
 		WITH next_item AS (
 			SELECT id
 			FROM outbound_messages
-			WHERE status IN ('queued', 'processing')
-			  AND next_attempt_at <= NOW()
+			WHERE next_attempt_at <= NOW()
+			  AND (
+				status = 'queued'
+				OR (status = 'processing' AND updated_at <= NOW() - ($1 * INTERVAL '1 second'))
+			  )
 			ORDER BY created_at ASC
 			FOR UPDATE SKIP LOCKED
 			LIMIT 1
@@ -465,7 +470,7 @@ func (r *Repository) ClaimNextOutboundMessage(ctx context.Context) (OutboundMess
 			om.provider_message_id,
 			om.created_at,
 			om.updated_at
-	`).Scan(
+	`, int(outboundProcessingLease/time.Second)).Scan(
 		&item.ID,
 		&item.WorkspaceID,
 		&item.Channel,
