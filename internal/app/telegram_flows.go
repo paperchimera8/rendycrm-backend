@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"crypto/sha256"
+	"database/sql"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -489,6 +490,9 @@ func (s *Server) handleTelegramClientUpdate(ctx context.Context, account Channel
 		if err != nil {
 			return err
 		}
+		if !result.Stored {
+			return nil
+		}
 		conversation, _, customer, detailErr := s.runtime.repository.ConversationDetail(ctx, result.WorkspaceID, result.ConversationID)
 		if detailErr == nil {
 			_ = s.publishEvent(ctx, SSEEvent{Type: EventMessageNew, Data: Message{ID: result.MessageID, ConversationID: result.ConversationID}})
@@ -514,6 +518,9 @@ func (s *Server) handleTelegramClientUpdate(ctx context.Context, account Channel
 	if err != nil {
 		return err
 	}
+	if !result.Stored {
+		return nil
+	}
 	conversation, _, customer, detailErr := s.runtime.repository.ConversationDetail(ctx, result.WorkspaceID, result.ConversationID)
 	if detailErr == nil {
 		_ = s.publishEvent(ctx, SSEEvent{Type: EventMessageNew, Data: Message{ID: result.MessageID, ConversationID: result.ConversationID}})
@@ -524,8 +531,14 @@ func (s *Server) handleTelegramClientUpdate(ctx context.Context, account Channel
 }
 
 func (s *Server) handleTelegramClientCallback(ctx context.Context, account ChannelAccount, update tgapi.Update) error {
+	if update.CallbackQuery == nil || update.CallbackQuery.Message == nil {
+		return nil
+	}
 	data := strings.TrimSpace(update.CallbackQuery.Data)
 	chatID := strconv.FormatInt(update.CallbackQuery.Message.Chat.ID, 10)
+	if data == "" || chatID == "" {
+		return nil
+	}
 	if fresh, err := s.claimTelegramCallbackAction(ctx, account.ID, ChannelKindTelegramClient, chatID, update.CallbackQuery.Message.MessageID, data); err != nil {
 		return err
 	} else if !fresh {
@@ -554,7 +567,7 @@ func (s *Server) handleTelegramClientCallback(ctx context.Context, account Chann
 			ChannelTelegram,
 			account.ID,
 			chatID,
-			"cbq:"+update.CallbackQuery.ID,
+			telegramCallbackExternalMessageID(update),
 			"Есть ли свободные окна?",
 			time.Now().UTC(),
 			profile,
@@ -571,6 +584,9 @@ func (s *Server) handleTelegramClientCallback(ctx context.Context, account Chann
 		if err != nil {
 			return err
 		}
+		if !result.Stored {
+			return nil
+		}
 		if conversation, _, customer, detailErr := s.runtime.repository.ConversationDetail(ctx, result.WorkspaceID, result.ConversationID); detailErr == nil {
 			_ = s.publishEvent(ctx, SSEEvent{Type: EventMessageNew, Data: Message{ID: result.MessageID, ConversationID: result.ConversationID}})
 			_ = s.publishDashboard(ctx, result.WorkspaceID)
@@ -582,7 +598,7 @@ func (s *Server) handleTelegramClientCallback(ctx context.Context, account Chann
 			ChannelTelegram,
 			account.ID,
 			chatID,
-			"cbq:"+update.CallbackQuery.ID,
+			telegramCallbackExternalMessageID(update),
 			"Сколько стоит?",
 			time.Now().UTC(),
 			profile,
@@ -603,7 +619,7 @@ func (s *Server) handleTelegramClientCallback(ctx context.Context, account Chann
 			ChannelTelegram,
 			account.ID,
 			chatID,
-			"cbq:"+update.CallbackQuery.ID,
+			telegramCallbackExternalMessageID(update),
 			"Хочу связаться с человеком",
 			time.Now().UTC(),
 			profile,
@@ -619,6 +635,9 @@ func (s *Server) handleTelegramClientCallback(ctx context.Context, account Chann
 		}
 		if err != nil {
 			return err
+		}
+		if !result.Stored {
+			return nil
 		}
 		if conversation, _, customer, detailErr := s.runtime.repository.ConversationDetail(ctx, result.WorkspaceID, result.ConversationID); detailErr == nil {
 			_ = s.publishEvent(ctx, SSEEvent{Type: EventMessageNew, Data: Message{ID: result.MessageID, ConversationID: result.ConversationID}})
@@ -672,17 +691,40 @@ func (s *Server) handleTelegramClientCallback(ctx context.Context, account Chann
 	case strings.HasPrefix(data, "booking:confirm:"):
 		conversation, customer, err := s.runtime.repository.ConversationByExternalChat(ctx, targetWorkspaceID, ChannelTelegram, chatID)
 		if err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				return s.enqueueTelegramOutbound(ctx, account, OutboundKindTelegramSendText, "", "", TelegramOutboundPayload{
+					ChatID: chatID,
+					Text:   "Не удалось найти активный диалог. Нажмите «Свободные окна», чтобы запросить варианты заново.",
+				})
+			}
 			return err
 		}
 		session, err := s.runtime.repository.LoadBotSession(ctx, targetWorkspaceID, BotSessionScopeClient, BotSessionActorCustomer, customer.ID)
 		if err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				return s.enqueueTelegramOutbound(ctx, account, OutboundKindTelegramSendText, conversation.ID, "", TelegramOutboundPayload{
+					ChatID: chatID,
+					Text:   "Это действие уже обработано или устарело. Нажмите «Свободные окна», чтобы запросить актуальные варианты заново.",
+				})
+			}
 			return err
 		}
 		var payload struct {
 			BookingID string `json:"bookingId"`
 		}
 		if err := json.Unmarshal([]byte(session.Payload), &payload); err != nil {
-			return err
+			_ = s.runtime.services.BotSessions.ClearSession(ctx, domain.Actor{Kind: domain.ActorCustomerBot, WorkspaceID: targetWorkspaceID}, targetWorkspaceID, string(BotSessionScopeClient), string(BotSessionActorCustomer), customer.ID)
+			return s.enqueueTelegramOutbound(ctx, account, OutboundKindTelegramSendText, conversation.ID, "", TelegramOutboundPayload{
+				ChatID: chatID,
+				Text:   "Не удалось восстановить состояние бронирования. Нажмите «Свободные окна», чтобы начать заново.",
+			})
+		}
+		if strings.TrimSpace(payload.BookingID) == "" {
+			_ = s.runtime.services.BotSessions.ClearSession(ctx, domain.Actor{Kind: domain.ActorCustomerBot, WorkspaceID: targetWorkspaceID}, targetWorkspaceID, string(BotSessionScopeClient), string(BotSessionActorCustomer), customer.ID)
+			return s.enqueueTelegramOutbound(ctx, account, OutboundKindTelegramSendText, conversation.ID, "", TelegramOutboundPayload{
+				ChatID: chatID,
+				Text:   "Не удалось восстановить бронирование. Нажмите «Свободные окна», чтобы выбрать время заново.",
+			})
 		}
 		actor := domain.Actor{Kind: domain.ActorCustomerBot, WorkspaceID: targetWorkspaceID}
 		booking, err := s.runtime.services.Bookings.ConfirmBooking(ctx, actor, targetWorkspaceID, payload.BookingID, 0, conversation.ID)
@@ -704,6 +746,12 @@ func (s *Server) handleTelegramClientCallback(ctx context.Context, account Chann
 	case data == "booking:cancel":
 		conversation, customer, err := s.runtime.repository.ConversationByExternalChat(ctx, targetWorkspaceID, ChannelTelegram, chatID)
 		if err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				return s.enqueueTelegramOutbound(ctx, account, OutboundKindTelegramSendText, "", "", TelegramOutboundPayload{
+					ChatID: chatID,
+					Text:   "Активное бронирование не найдено. Нажмите «Свободные окна», чтобы начать заново.",
+				})
+			}
 			return err
 		}
 		session, err := s.runtime.repository.LoadBotSession(ctx, targetWorkspaceID, BotSessionScopeClient, BotSessionActorCustomer, customer.ID)
@@ -711,10 +759,18 @@ func (s *Server) handleTelegramClientCallback(ctx context.Context, account Chann
 			var payload struct {
 				BookingID string `json:"bookingId"`
 			}
-			if json.Unmarshal([]byte(session.Payload), &payload) == nil && payload.BookingID != "" {
+			if json.Unmarshal([]byte(session.Payload), &payload) == nil && strings.TrimSpace(payload.BookingID) != "" {
 				actor := domain.Actor{Kind: domain.ActorCustomerBot, WorkspaceID: targetWorkspaceID}
 				_, _ = s.runtime.services.Bookings.CancelBooking(ctx, actor, targetWorkspaceID, payload.BookingID, conversation.ID)
+			} else {
+				_ = s.runtime.services.BotSessions.ClearSession(ctx, domain.Actor{Kind: domain.ActorCustomerBot, WorkspaceID: targetWorkspaceID}, targetWorkspaceID, string(BotSessionScopeClient), string(BotSessionActorCustomer), customer.ID)
+				return s.enqueueTelegramOutbound(ctx, account, OutboundKindTelegramSendText, conversation.ID, "", TelegramOutboundPayload{
+					ChatID: chatID,
+					Text:   "Не удалось восстановить состояние бронирования. Нажмите «Свободные окна», чтобы начать заново.",
+				})
 			}
+		} else if !errors.Is(err, sql.ErrNoRows) {
+			return err
 		}
 		_ = s.runtime.services.BotSessions.ClearSession(ctx, domain.Actor{Kind: domain.ActorCustomerBot, WorkspaceID: targetWorkspaceID}, targetWorkspaceID, string(BotSessionScopeClient), string(BotSessionActorCustomer), customer.ID)
 		return s.enqueueTelegramOutbound(ctx, account, OutboundKindTelegramSendText, conversation.ID, "", TelegramOutboundPayload{
@@ -911,6 +967,25 @@ func phoneFromContact(contact *tgapi.Contact) string {
 		return ""
 	}
 	return contact.PhoneNumber
+}
+
+func telegramCallbackExternalMessageID(update tgapi.Update) string {
+	if update.CallbackQuery == nil {
+		return ""
+	}
+	data := strings.TrimSpace(update.CallbackQuery.Data)
+	if data == "" {
+		return ""
+	}
+	if update.CallbackQuery.Message != nil {
+		chatID := strconv.FormatInt(update.CallbackQuery.Message.Chat.ID, 10)
+		return fmt.Sprintf("cbqmsg:%s:%d:%s", chatID, update.CallbackQuery.Message.MessageID, data)
+	}
+	callbackID := strings.TrimSpace(update.CallbackQuery.ID)
+	if callbackID == "" {
+		return ""
+	}
+	return "cbq:" + callbackID
 }
 
 func inboundUsecaseInput(provider ChannelProvider, accountID, externalChatID, externalMessageID, text string, timestamp time.Time, profile InboundProfile) usecase.InboundInput {

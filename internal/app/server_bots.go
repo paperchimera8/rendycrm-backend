@@ -615,6 +615,10 @@ func (s *Server) handleWhatsAppWebhook(w http.ResponseWriter, r *http.Request, c
 		s.writeError(w, http.StatusInternalServerError, "failed to receive whatsapp inbound")
 		return
 	}
+	if !result.Stored {
+		s.writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+		return
+	}
 	_ = s.publishEvent(r.Context(), SSEEvent{Type: EventMessageNew, Data: Message{ID: result.MessageID, ConversationID: result.ConversationID}})
 	_ = s.publishDashboard(r.Context(), result.WorkspaceID)
 	if conversation, _, customer, detailErr := s.runtime.repository.ConversationDetail(r.Context(), result.WorkspaceID, result.ConversationID); detailErr == nil {

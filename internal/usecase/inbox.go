@@ -27,6 +27,7 @@ type InboundResult struct {
 	MessageID       string
 	CustomerID      string
 	ConversationNew bool
+	Stored          bool
 }
 
 type InboxStore interface {
