@@ -306,6 +306,19 @@ func TestMasterProfileAndClientBotRoute(t *testing.T) {
 		t.Fatalf("unexpected loaded route: %+v", loaded)
 	}
 
+	awaiting, err := repo.SaveClientBotRoute(context.Background(), ClientBotRoute{
+		ChannelAccountID: "cha_test_route",
+		ExternalChatID:   "chat_43",
+		State:            "awaiting_master_phone",
+		ExpiresAt:        time.Now().UTC().Add(time.Hour),
+	})
+	if err != nil {
+		t.Fatalf("save awaiting client bot route: %v", err)
+	}
+	if awaiting.SelectedMasterPhoneNormalized != "" {
+		t.Fatalf("expected empty phone for awaiting route, got %q", awaiting.SelectedMasterPhoneNormalized)
+	}
+
 	if err := repo.ClearClientBotRoute(context.Background(), "cha_test_route", "chat_42"); err != nil {
 		t.Fatalf("clear client bot route: %v", err)
 	}

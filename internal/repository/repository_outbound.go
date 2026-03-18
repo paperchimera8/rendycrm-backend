@@ -300,7 +300,7 @@ func (r *Repository) SaveClientBotRoute(ctx context.Context, route ClientBotRout
 			id, channel_account_id, external_chat_id, selected_workspace_id,
 			selected_master_phone_normalized, state, expires_at, updated_at
 		)
-		VALUES ($1, $2, $3, NULLIF($4, ''), NULLIF($5, ''), $6, $7, $8)
+		VALUES ($1, $2, $3, NULLIF($4, ''), $5, $6, $7, $8)
 		ON CONFLICT (channel_account_id, external_chat_id) DO UPDATE
 		SET selected_workspace_id = EXCLUDED.selected_workspace_id,
 			selected_master_phone_normalized = EXCLUDED.selected_master_phone_normalized,
