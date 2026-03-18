@@ -40,9 +40,18 @@ const appRoute = createRoute({
   errorComponent: RouterErrorView
 })
 
-const dashboardRoute = createRoute({
+const appIndexRoute = createRoute({
   getParentRoute: () => appRoute,
   path: '/',
+  beforeLoad: async () => {
+    throw redirect({ to: '/dialogs' })
+  },
+  errorComponent: RouterErrorView
+})
+
+const dashboardRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: 'dashboard',
   component: DashboardPage,
   errorComponent: RouterErrorView
 })
@@ -92,6 +101,7 @@ const settingsRoute = createRoute({
 const routeTree = rootRoute.addChildren([
   loginRoute,
   appRoute.addChildren([
+    appIndexRoute,
     dashboardRoute,
     dialogsRoute,
     slotsRoute,
@@ -110,7 +120,7 @@ export const router = createRouter({
   },
   defaultPreload: 'intent',
   defaultErrorComponent: RouterErrorView,
-  defaultNotFoundComponent: () => <RouterErrorView error={new Error('Page not found')} reset={() => window.location.assign(appUrl('/'))} info={{ componentStack: '' }} />
+  defaultNotFoundComponent: () => <RouterErrorView error={new Error('Page not found')} reset={() => window.location.assign(appUrl('/dialogs'))} info={{ componentStack: '' }} />
 })
 
 declare module '@tanstack/react-router' {

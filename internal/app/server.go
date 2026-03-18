@@ -280,6 +280,10 @@ func (s *Server) handleApp(w http.ResponseWriter, r *http.Request) {
 		requestPath = strippedPath
 	}
 	cleanPath := filepath.Clean("/" + requestPath)
+	if s.cfg.AppBasePath != "" && isIndexPath(cleanPath) {
+		http.Redirect(w, r, s.cfg.AppBasePath+"/dialogs", http.StatusFound)
+		return
+	}
 	targetPath := filepath.Join(staticDir, filepath.FromSlash(strings.TrimPrefix(cleanPath, "/")))
 	if info, err := os.Stat(targetPath); err == nil && !info.IsDir() {
 		if isStaticAssetRequest(cleanPath) {

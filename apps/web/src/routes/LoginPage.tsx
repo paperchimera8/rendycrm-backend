@@ -21,7 +21,7 @@ export function LoginPage() {
     try {
       const response = await login(values.email, values.password)
       setToken(response.token)
-      router.navigate({ to: '/' })
+      router.navigate({ to: '/dialogs' })
     } catch (error) {
       setError('root', { message: error instanceof Error ? error.message : 'Не удалось выполнить вход' })
     }

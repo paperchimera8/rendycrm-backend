@@ -6,7 +6,7 @@ import { useMe } from '../lib/queries'
 import { useUIStore } from '../stores/ui'
 
 const navItems = [
-  { to: '/', label: 'Дашборд' },
+  { to: '/dashboard', label: 'Дашборд' },
   { to: '/dialogs', label: 'Диалоги' },
   { to: '/slots', label: 'Слоты' },
   { to: '/reviews', label: 'Отзывы' },
