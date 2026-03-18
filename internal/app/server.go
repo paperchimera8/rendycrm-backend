@@ -1032,6 +1032,12 @@ func (s *Server) handleChannelByProvider(w http.ResponseWriter, r *http.Request,
 		s.writeError(w, http.StatusNotFound, err.Error())
 		return
 	}
+	if provider == ChannelTelegram {
+		if err := s.syncTelegramWebhook(r.Context(), account); err != nil {
+			s.writeError(w, http.StatusBadGateway, err.Error())
+			return
+		}
+	}
 	s.writeJSON(w, http.StatusOK, account)
 }
 

@@ -145,6 +145,10 @@ func (s *Server) handleOperatorBotSettings(w http.ResponseWriter, r *http.Reques
 			s.writeError(w, http.StatusInternalServerError, "operator bot settings query failed")
 			return
 		}
+		if err := s.syncTelegramWebhook(r.Context(), account); err != nil {
+			s.writeError(w, http.StatusBadGateway, err.Error())
+			return
+		}
 		settings, err := s.runtime.repository.OperatorBotSettings(r.Context(), auth.Workspace.ID, auth.User.ID, account.BotUsername, s.cfg.PublicBaseURL)
 		if err != nil {
 			s.writeError(w, http.StatusInternalServerError, "operator bot settings query failed")
@@ -153,6 +157,64 @@ func (s *Server) handleOperatorBotSettings(w http.ResponseWriter, r *http.Reques
 		s.writeJSON(w, http.StatusOK, settings)
 	default:
 		s.writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+	}
+}
+
+func (s *Server) syncTelegramWebhook(ctx context.Context, account ChannelAccount) error {
+	if account.Provider != ChannelTelegram {
+		return nil
+	}
+	token, err := decryptString(s.cfg.EncryptionSecret, account.EncryptedToken)
+	if err != nil {
+		return fmt.Errorf("failed to decrypt telegram bot token")
+	}
+	if strings.TrimSpace(token) == "" {
+		if account.Connected || account.IsEnabled {
+			return errors.New("telegram bot token is not configured")
+		}
+		return nil
+	}
+	if !account.Connected || !account.IsEnabled {
+		if err := s.runtime.telegram.DeleteWebhook(ctx, token, false); err != nil {
+			return fmt.Errorf("failed to delete telegram webhook: %w", err)
+		}
+		return nil
+	}
+	webhookURL, err := s.telegramWebhookURL(account)
+	if err != nil {
+		return err
+	}
+	req := telegram.SetWebhookRequest{
+		URL:            webhookURL,
+		AllowedUpdates: []string{"message", "callback_query"},
+	}
+	if account.ChannelKind == ChannelKindTelegramOperator {
+		req.SecretToken = strings.TrimSpace(account.WebhookSecret)
+		if req.SecretToken == "" {
+			return errors.New("telegram webhook secret is not configured")
+		}
+	}
+	if err := s.runtime.telegram.SetWebhook(ctx, token, req); err != nil {
+		return fmt.Errorf("failed to register telegram webhook: %w", err)
+	}
+	return nil
+}
+
+func (s *Server) telegramWebhookURL(account ChannelAccount) (string, error) {
+	baseURL := strings.TrimRight(strings.TrimSpace(s.cfg.PublicBaseURL), "/")
+	if baseURL == "" {
+		return "", errors.New("PUBLIC_BASE_URL must be configured")
+	}
+	switch account.ChannelKind {
+	case ChannelKindTelegramClient:
+		if strings.TrimSpace(account.WebhookSecret) == "" {
+			return "", errors.New("telegram client webhook secret is not configured")
+		}
+		return baseURL + fmt.Sprintf("/webhooks/telegram/client/%s/%s", account.ID, account.WebhookSecret), nil
+	case ChannelKindTelegramOperator:
+		return baseURL + "/webhooks/telegram/operator", nil
+	default:
+		return "", fmt.Errorf("telegram webhook is not supported for channel kind %s", account.ChannelKind)
 	}
 }
 

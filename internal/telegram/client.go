@@ -96,6 +96,18 @@ func (c *APIClient) AnswerCallback(ctx context.Context, token string, req Answer
 	return err
 }
 
+func (c *APIClient) SetWebhook(ctx context.Context, token string, req SetWebhookRequest) error {
+	_, err := callAPI[bool](ctx, c.httpClient, c.baseURL, token, "setWebhook", req)
+	return err
+}
+
+func (c *APIClient) DeleteWebhook(ctx context.Context, token string, dropPendingUpdates bool) error {
+	_, err := callAPI[bool](ctx, c.httpClient, c.baseURL, token, "deleteWebhook", DeleteWebhookRequest{
+		DropPendingUpdates: dropPendingUpdates,
+	})
+	return err
+}
+
 func (c *APIClient) callMessage(ctx context.Context, token, method string, payload any) (MessageResponse, error) {
 	return callAPI[MessageResponse](ctx, c.httpClient, c.baseURL, token, method, payload)
 }

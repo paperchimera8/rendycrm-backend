@@ -80,6 +80,17 @@ type AnswerCallbackQueryRequest struct {
 	ShowAlert       bool   `json:"show_alert,omitempty"`
 }
 
+type SetWebhookRequest struct {
+	URL                string   `json:"url"`
+	SecretToken        string   `json:"secret_token,omitempty"`
+	AllowedUpdates     []string `json:"allowed_updates,omitempty"`
+	DropPendingUpdates bool     `json:"drop_pending_updates,omitempty"`
+}
+
+type DeleteWebhookRequest struct {
+	DropPendingUpdates bool `json:"drop_pending_updates,omitempty"`
+}
+
 type APIResponse[T any] struct {
 	OK          bool   `json:"ok"`
 	Description string `json:"description,omitempty"`
