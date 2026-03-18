@@ -1,69 +1,79 @@
-# Загрузка бэкенда на сервер (Ubuntu + Docker)
+# Загрузка приложения на сервер с внешними PostgreSQL и Redis
 
 ## 1. На сервере
 
 ```bash
-# Установить Docker (если ещё нет)
 curl -fsSL https://get.docker.com | sh
 sudo usermod -aG docker $USER
-# Перелогиниться или: newgrp docker
-
-# Создать папку
 mkdir -p ~/rendycrm && cd ~/rendycrm
 ```
 
-## 2. Копирование файлов на сервер
+## 2. Копирование файлов
 
-**Вариант A — через rsync (с локальной машины):**
 ```bash
-rsync -avz --exclude 'apps/web' --exclude 'node_modules' --exclude '.git' \
-  /Users/vital/Documents/rendycrm-app/ user@SERVER_IP:~/rendycrm/
-```
-
-**Вариант B — через git (если репо на GitHub):**
-```bash
-# На сервере
 git clone https://github.com/paperchimera8/rendycrm-backend.git ~/rendycrm
 cd ~/rendycrm
 ```
 
-**Вариант C — через scp:**
-```bash
-scp -r cmd internal migrations go.mod go.sum Dockerfile deploy user@SERVER_IP:~/rendycrm/
-```
+## 3. Переменные окружения
 
-## 3. Запуск на сервере
+Создайте `.env` в корне проекта и укажите внешние сервисы.
 
 ```bash
-cd ~/rendycrm
-
-# Создать .env (опционально)
 cat > .env << 'EOF'
-POSTGRES_PASSWORD=strong_password_here
-APP_ENCRYPTION_SECRET=random-32-chars-secret
-PUBLIC_BASE_URL=https://your-domain.com
-ENABLE_DEMO_SEED=true
+API_PORT=3000
+WEB_PORT=8081
+NGINX_PORT=8080
+API_BASE_URL=/api
+API_UPSTREAM=http://api:3000
+PUBLIC_BASE_URL=https://your-domain.com/api
+
+APP_ENCRYPTION_SECRET=change-me-to-a-long-random-secret
+ENABLE_DEMO_SEED=false
+
+POSTGRES_HOST=your-postgres-host
+POSTGRES_PORT=5432
+POSTGRES_DB=default_db
+POSTGRES_USER=gen_user
+POSTGRES_PASSWORD=change-me
+POSTGRES_SSLMODE=verify-full
+POSTGRES_SSLROOTCERT=/run/certs/postgres-root.crt
+POSTGRES_SSLROOTCERT_URL=https://st.timeweb.com/cloud-static/ca.crt
+
+REDIS_HOST=your-redis-host
+REDIS_PORT=6379
+REDIS_USERNAME=default
+REDIS_PASSWORD=change-me
+REDIS_DB=0
 EOF
-
-# Запустить
-cd deploy
-docker compose -f docker-compose.prod.yml up -d
-
-# Проверить
-docker compose -f docker-compose.prod.yml ps
-curl http://localhost:8080/health
 ```
 
-## 4. Обновление
+## 4. Запуск
 
 ```bash
-cd ~/rendycrm
-# Подтянуть изменения (git) или скопировать файлы заново (rsync)
-cd deploy
-docker compose -f docker-compose.prod.yml build api
-docker compose -f docker-compose.prod.yml up -d api
+docker compose -f deploy/docker-compose.vps.yml up -d --build
+docker compose -f deploy/docker-compose.vps.yml ps
+curl http://localhost:8081/api/health
+```
+
+## 5. Проверка внешних сервисов
+
+```bash
+redis-cli -h "$REDIS_HOST" -p "$REDIS_PORT" --user "$REDIS_USERNAME" --pass '***' ping
+
+docker run --rm postgres:16 \
+  psql "postgresql://$POSTGRES_USER:$POSTGRES_PASSWORD@$POSTGRES_HOST:$POSTGRES_PORT/$POSTGRES_DB?sslmode=$POSTGRES_SSLMODE" \
+  -c 'select 1;'
+```
+
+## 6. Обновление
+
+```bash
+git pull
+docker compose -f deploy/docker-compose.vps.yml up -d --build
 ```
 
 ## Порты
 
-- **8080** — API (пробросить в nginx/caddy или открыть в файрволе)
+- `8081` — фронтенд (nginx)
+- `3000` — backend API

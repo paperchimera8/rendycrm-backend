@@ -23,8 +23,10 @@ RUN CGO_ENABLED=0 go build -o /api ./cmd/api
 FROM alpine:3.19
 RUN apk add --no-cache ca-certificates curl
 COPY --from=api-builder /api /api
+COPY docker-entrypoint.sh /docker-entrypoint.sh
 COPY migrations /migrations
 COPY --from=web-builder /app/apps/web/dist /web
+RUN chmod +x /docker-entrypoint.sh
 RUN test -f /web/index.html
 RUN test -d /web/assets
 RUN test "$(find /web/assets -maxdepth 1 -type f | wc -l)" -gt 0
@@ -35,4 +37,4 @@ ENV APP_BASE_PATH=/app
 ENV PUBLIC_BASE_URL=https://rendycrm.ru/api
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
   CMD curl -f http://localhost:3000/health || exit 1
-ENTRYPOINT ["/api"]
+ENTRYPOINT ["/docker-entrypoint.sh"]

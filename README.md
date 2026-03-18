@@ -14,8 +14,9 @@ For services that deploy directly from GitHub, this repository should use the ro
 The app container serves the backend and the compiled frontend from one image.
 For that mode you need to provide external infrastructure through environment variables:
 
-- `POSTGRES_DSN`
-- `REDIS_ADDR`
+- `POSTGRES_DSN`, or component vars `POSTGRES_HOST`, `POSTGRES_PORT`, `POSTGRES_DB`, `POSTGRES_USER`, `POSTGRES_PASSWORD`
+- `POSTGRES_SSLMODE` and optionally `POSTGRES_SSLROOTCERT` / `POSTGRES_SSLROOTCERT_URL`
+- `REDIS_ADDR`, or component vars `REDIS_HOST`, `REDIS_PORT`, `REDIS_USERNAME`, `REDIS_PASSWORD`
 - `APP_ENCRYPTION_SECRET`
 - `PUBLIC_BASE_URL`
 
@@ -27,8 +28,8 @@ The runtime topology is:
 
 - `web` serves the compiled frontend SPA through nginx
 - `web` proxies `/api/*` to `api`
-- `postgres` is used only by `api`
-- `redis` is used only by `api`
+- `api` connects to an external PostgreSQL instance
+- `api` connects to an external Redis instance
 
 Start everything:
 
@@ -49,6 +50,10 @@ Main env knobs for compose:
 - `NGINX_PORT` — container listen port for frontend nginx, default `8080`
 - `API_BASE_URL` — browser-visible API base, default `/api`
 - `API_UPSTREAM` — nginx upstream inside compose, default `http://api:3000`
+- `POSTGRES_HOST`, `POSTGRES_PORT`, `POSTGRES_DB`, `POSTGRES_USER`, `POSTGRES_PASSWORD`
+- `POSTGRES_SSLMODE` — `prefer`, `require`, or `verify-full`
+- `POSTGRES_SSLROOTCERT_URL` — optional URL for downloading the CA cert inside the container before startup
+- `REDIS_HOST`, `REDIS_PORT`, `REDIS_USERNAME`, `REDIS_PASSWORD`, `REDIS_DB`
 
 ## Seed credentials
 
@@ -64,12 +69,25 @@ Main env knobs for compose:
 
 ## Compose wiring
 
-- `api` connects to PostgreSQL via `postgres:5432`
-- `api` connects to Redis via `redis:6379`
+- `api` connects to PostgreSQL via external host credentials from env
+- `api` connects to Redis via external host credentials from env
 - `web` listens on its own port and reverse-proxies `/api/*` to `api`
 - the browser never talks to PostgreSQL or Redis directly
-- PostgreSQL data is stored in the `postgres_data` volume
-- Redis data is stored in the `redis_data` volume
+
+## External service checks
+
+Managed Redis with ACL user:
+
+```bash
+redis-cli -h "$REDIS_HOST" -p "$REDIS_PORT" --user "$REDIS_USERNAME" --pass '***' ping
+```
+
+Managed PostgreSQL with custom CA:
+
+```bash
+export POSTGRES_SSLROOTCERT_URL=https://st.timeweb.com/cloud-static/ca.crt
+docker compose -f deploy/docker-compose.vps.yml up -d --build
+```
 
 ## Notes
 

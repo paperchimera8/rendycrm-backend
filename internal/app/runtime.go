@@ -86,6 +86,7 @@ func NewRuntime(ctx context.Context, cfg Config) (*Runtime, error) {
 
 	rdb := redis.NewClient(&redis.Options{
 		Addr:     cfg.RedisAddr,
+		Username: cfg.RedisUsername,
 		Password: cfg.RedisPassword,
 		DB:       cfg.RedisDB,
 	})

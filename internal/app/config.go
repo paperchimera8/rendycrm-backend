@@ -2,6 +2,8 @@ package app
 
 import (
 	"bufio"
+	"net"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -15,6 +17,7 @@ type Config struct {
 	AppBasePath         string
 	PostgresDSN         string
 	RedisAddr           string
+	RedisUsername       string
 	RedisPassword       string
 	RedisDB             int
 	SessionTTL          time.Duration
@@ -36,8 +39,9 @@ func LoadConfig() Config {
 		Port:                envOrDefault("PORT", "8080"),
 		StaticDir:           envOrDefault("STATIC_DIR", ""),
 		AppBasePath:         normalizeBasePath(os.Getenv("APP_BASE_PATH")),
-		PostgresDSN:         envOrDefault("POSTGRES_DSN", "postgres://postgres:postgres@postgres:5432/rendycrm?sslmode=disable"),
-		RedisAddr:           envOrDefault("REDIS_ADDR", "redis:6379"),
+		PostgresDSN:         postgresDSNFromEnv(),
+		RedisAddr:           redisAddrFromEnv(),
+		RedisUsername:       firstNonEmpty("REDIS_USERNAME", "REDIS_USER"),
 		RedisPassword:       os.Getenv("REDIS_PASSWORD"),
 		RedisDB:             envOrDefaultInt("REDIS_DB", 0),
 		SessionTTL:          envOrDefaultDuration("SESSION_TTL", 24*time.Hour),
@@ -51,6 +55,52 @@ func LoadConfig() Config {
 		CORSAllowedOrigins:  parseCSV(os.Getenv("CORS_ALLOWED_ORIGINS")),
 		EnableDemoSeed:      envOrDefaultBool("ENABLE_DEMO_SEED", false),
 	}
+}
+
+func postgresDSNFromEnv() string {
+	if dsn := strings.TrimSpace(os.Getenv("POSTGRES_DSN")); dsn != "" {
+		return dsn
+	}
+
+	if !hasAnyEnv("POSTGRES_HOST", "POSTGRES_PORT", "POSTGRES_DB", "POSTGRES_USER", "POSTGRES_PASSWORD", "POSTGRES_SSLMODE", "POSTGRES_SSLROOTCERT") {
+		return "postgres://postgres:postgres@postgres:5432/rendycrm?sslmode=disable"
+	}
+
+	host := envOrDefault("POSTGRES_HOST", "postgres")
+	port := envOrDefault("POSTGRES_PORT", "5432")
+	database := envOrDefault("POSTGRES_DB", "rendycrm")
+	user := envOrDefault("POSTGRES_USER", "postgres")
+	password := envOrDefault("POSTGRES_PASSWORD", "postgres")
+	sslMode := envOrDefault("POSTGRES_SSLMODE", "prefer")
+	sslRootCert := strings.TrimSpace(os.Getenv("POSTGRES_SSLROOTCERT"))
+
+	dsn := &url.URL{
+		Scheme: "postgres",
+		User:   url.UserPassword(user, password),
+		Host:   net.JoinHostPort(host, port),
+		Path:   "/" + strings.TrimLeft(database, "/"),
+	}
+	query := dsn.Query()
+	query.Set("sslmode", sslMode)
+	if sslRootCert != "" {
+		query.Set("sslrootcert", sslRootCert)
+	}
+	dsn.RawQuery = query.Encode()
+
+	return dsn.String()
+}
+
+func redisAddrFromEnv() string {
+	if addr := strings.TrimSpace(os.Getenv("REDIS_ADDR")); addr != "" {
+		return addr
+	}
+	if !hasAnyEnv("REDIS_HOST", "REDIS_PORT") {
+		return "redis:6379"
+	}
+	return net.JoinHostPort(
+		envOrDefault("REDIS_HOST", "redis"),
+		envOrDefault("REDIS_PORT", "6379"),
+	)
 }
 
 func loadDotEnv(path string) {
@@ -88,6 +138,24 @@ func envOrDefault(key, fallback string) string {
 		return value
 	}
 	return fallback
+}
+
+func firstNonEmpty(keys ...string) string {
+	for _, key := range keys {
+		if value := strings.TrimSpace(os.Getenv(key)); value != "" {
+			return value
+		}
+	}
+	return ""
+}
+
+func hasAnyEnv(keys ...string) bool {
+	for _, key := range keys {
+		if strings.TrimSpace(os.Getenv(key)) != "" {
+			return true
+		}
+	}
+	return false
 }
 
 func envOrDefaultInt(key string, fallback int) int {
