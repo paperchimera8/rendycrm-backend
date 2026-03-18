@@ -256,7 +256,8 @@ func (a usecaseRepositoryAdapter) ReceiveInboundMessage(ctx context.Context, inp
 		ConversationID:  result.Conversation.ID,
 		MessageID:       result.Message.ID,
 		CustomerID:      result.Customer.ID,
-		ConversationNew: result.Conversation.UnreadCount == 1,
+		ConversationNew: result.Stored && result.Conversation.UnreadCount == 1,
+		Stored:          result.Stored,
 	}, nil
 }
 
@@ -282,7 +283,8 @@ func (a usecaseRepositoryAdapter) ReceiveInboundMessageForWorkspace(ctx context.
 		ConversationID:  result.Conversation.ID,
 		MessageID:       result.Message.ID,
 		CustomerID:      result.Customer.ID,
-		ConversationNew: result.Conversation.UnreadCount == 1,
+		ConversationNew: result.Stored && result.Conversation.UnreadCount == 1,
+		Stored:          result.Stored,
 	}, nil
 }
 

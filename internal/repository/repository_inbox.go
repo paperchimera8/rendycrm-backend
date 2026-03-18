@@ -427,7 +427,7 @@ func (r *Repository) receiveInboundMessageForWorkspace(ctx context.Context, targ
 		if err != nil {
 			return InboxReceiveResult{}, err
 		}
-		return InboxReceiveResult{Conversation: conversation, Customer: customer}, nil
+		return InboxReceiveResult{Conversation: conversation, Customer: customer, Stored: false}, nil
 	}
 
 	if _, err := tx.ExecContext(ctx, `
@@ -467,6 +467,7 @@ func (r *Repository) receiveInboundMessageForWorkspace(ctx context.Context, targ
 		Message:      message,
 		Customer:     customer,
 		Responses:    autoResponses,
+		Stored:       true,
 	}, nil
 }
 

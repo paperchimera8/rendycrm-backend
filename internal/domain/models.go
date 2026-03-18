@@ -409,6 +409,7 @@ type InboxReceiveResult struct {
 	Message      Message              `json:"message"`
 	Customer     Customer             `json:"customer"`
 	Responses    []BotOutboundMessage `json:"responses"`
+	Stored       bool                 `json:"stored"`
 }
 
 type BotOutboundMessage struct {
