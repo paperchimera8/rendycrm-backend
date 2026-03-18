@@ -112,3 +112,16 @@ func TestShouldSkipTelegramRoutePrompt(t *testing.T) {
 		t.Fatal("did not expect cooldown to suppress old prompt")
 	}
 }
+
+func TestTelegramCallbackActionKey(t *testing.T) {
+	first := telegramCallbackActionKey("cha_1", ChannelKindTelegramClient, "chat_1", 42, "client:book")
+	second := telegramCallbackActionKey("cha_1", ChannelKindTelegramClient, "chat_1", 42, "client:book")
+	third := telegramCallbackActionKey("cha_1", ChannelKindTelegramClient, "chat_1", 42, "client:prices")
+
+	if first != second {
+		t.Fatal("expected stable callback action key")
+	}
+	if first == third {
+		t.Fatal("expected different callback action key for different actions")
+	}
+}

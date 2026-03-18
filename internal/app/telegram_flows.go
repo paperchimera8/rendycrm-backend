@@ -2,6 +2,8 @@ package app
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -92,6 +94,20 @@ func telegramButtonLabel(command string) string {
 	default:
 		return command
 	}
+}
+
+const telegramCallbackActionCooldown = 10 * time.Second
+
+func telegramCallbackActionKey(accountID string, botKind ChannelKind, chatID string, messageID int64, data string) string {
+	hash := sha256.Sum256([]byte(strings.TrimSpace(data)))
+	return fmt.Sprintf(
+		"tg:cbq:%s:%s:%s:%d:%s",
+		strings.TrimSpace(accountID),
+		strings.TrimSpace(string(botKind)),
+		strings.TrimSpace(chatID),
+		messageID,
+		hex.EncodeToString(hash[:8]),
+	)
 }
 
 func defaultClientBotButtons() []TelegramInlineButton {
@@ -195,6 +211,14 @@ func (s *Server) selectedClientRoute(ctx context.Context, account ChannelAccount
 		return ClientBotRoute{}, errors.New("client bot route is not ready")
 	}
 	return route, nil
+}
+
+func (s *Server) claimTelegramCallbackAction(ctx context.Context, accountID string, botKind ChannelKind, chatID string, messageID int64, data string) (bool, error) {
+	if strings.TrimSpace(accountID) == "" || strings.TrimSpace(chatID) == "" || messageID == 0 || strings.TrimSpace(data) == "" {
+		return true, nil
+	}
+	key := telegramCallbackActionKey(accountID, botKind, chatID, messageID, data)
+	return s.runtime.redis.SetNX(ctx, key, "1", telegramCallbackActionCooldown).Result()
 }
 
 func (s *Server) selectMasterByPhone(ctx context.Context, account ChannelAccount, chatID, rawPhone, profileName string, user *tgapi.User, contact *tgapi.Contact) error {
@@ -420,6 +444,11 @@ func (s *Server) handleTelegramClientUpdate(ctx context.Context, account Channel
 func (s *Server) handleTelegramClientCallback(ctx context.Context, account ChannelAccount, update tgapi.Update) error {
 	data := strings.TrimSpace(update.CallbackQuery.Data)
 	chatID := strconv.FormatInt(update.CallbackQuery.Message.Chat.ID, 10)
+	if fresh, err := s.claimTelegramCallbackAction(ctx, account.ID, ChannelKindTelegramClient, chatID, update.CallbackQuery.Message.MessageID, data); err != nil {
+		return err
+	} else if !fresh {
+		return nil
+	}
 	profile := InboundProfile{
 		Name:     strings.TrimSpace(update.CallbackQuery.From.FirstName + " " + update.CallbackQuery.From.LastName),
 		Username: update.CallbackQuery.From.Username,
@@ -650,6 +679,15 @@ func (s *Server) handleTelegramOperatorUpdate(ctx context.Context, operatorAccou
 
 	if update.CallbackQuery != nil {
 		s.answerTelegramCallback(ctx, operatorAccount, update.CallbackQuery.ID, "")
+		if update.CallbackQuery.Message != nil {
+			fresh, err := s.claimTelegramCallbackAction(ctx, operatorAccount.ID, ChannelKindTelegramOperator, chatID, update.CallbackQuery.Message.MessageID, update.CallbackQuery.Data)
+			if err != nil {
+				return err
+			}
+			if !fresh {
+				return nil
+			}
+		}
 	}
 
 	isNew, err := s.runtime.repository.MarkTelegramUpdateProcessed(ctx, binding.WorkspaceID, operatorAccount.ID, ChannelKindTelegramOperator, update.UpdateID, chatID, messageIDFromUpdate(update), callbackIDFromUpdate(update))
