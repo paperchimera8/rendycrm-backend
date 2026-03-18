@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"strconv"
 	"strings"
 	"time"
@@ -129,6 +130,21 @@ func telegramInboundDeliveryKey(accountID string, botKind ChannelKind, chatID st
 		strings.TrimSpace(chatID),
 		messageID,
 	)
+}
+
+func telegramUpdateDebugValue(update tgapi.Update) string {
+	value := ""
+	switch {
+	case update.CallbackQuery != nil:
+		value = strings.TrimSpace(update.CallbackQuery.Data)
+	case update.Message != nil:
+		value = strings.TrimSpace(update.Message.Text)
+	}
+	value = strings.ReplaceAll(value, "\n", " ")
+	if len(value) > 120 {
+		value = value[:120]
+	}
+	return value
 }
 
 func defaultClientBotButtons() []TelegramInlineButton {
@@ -374,12 +390,23 @@ func (s *Server) handleTelegramClientUpdate(ctx context.Context, account Channel
 	if chatID == "" {
 		return nil
 	}
+	log.Printf("telegram inbound bot=client update_id=%d chat_id=%s message_id=%d callback_id=%q value=%q", update.UpdateID, chatID, messageID, callbackID, telegramUpdateDebugValue(update))
 	freshDelivery, err := s.claimTelegramInboundDelivery(ctx, account.ID, ChannelKindTelegramClient, chatID, messageID, callbackID)
-	if err != nil || !freshDelivery {
+	if err != nil {
+		log.Printf("telegram inbound bot=client stage=redis_claim update_id=%d chat_id=%s error=%v", update.UpdateID, chatID, err)
+		return err
+	}
+	if !freshDelivery {
+		log.Printf("telegram inbound bot=client stage=redis_claim duplicate=true update_id=%d chat_id=%s message_id=%d callback_id=%q", update.UpdateID, chatID, messageID, callbackID)
 		return err
 	}
 	isNew, err := s.runtime.repository.MarkTelegramUpdateProcessed(ctx, account.WorkspaceID, account.ID, ChannelKindTelegramClient, update.UpdateID, chatID, messageID, callbackID)
-	if err != nil || !isNew {
+	if err != nil {
+		log.Printf("telegram inbound bot=client stage=db_dedup update_id=%d chat_id=%s error=%v", update.UpdateID, chatID, err)
+		return err
+	}
+	if !isNew {
+		log.Printf("telegram inbound bot=client stage=db_dedup duplicate=true update_id=%d chat_id=%s message_id=%d callback_id=%q", update.UpdateID, chatID, messageID, callbackID)
 		return err
 	}
 
@@ -687,8 +714,14 @@ func (s *Server) handleTelegramOperatorUpdate(ctx context.Context, operatorAccou
 
 	messageID := messageIDFromUpdate(update)
 	callbackID := callbackIDFromUpdate(update)
+	log.Printf("telegram inbound bot=operator update_id=%d chat_id=%s user_id=%s message_id=%d callback_id=%q value=%q", update.UpdateID, chatID, userID, messageID, callbackID, telegramUpdateDebugValue(update))
 	freshDelivery, err := s.claimTelegramInboundDelivery(ctx, operatorAccount.ID, ChannelKindTelegramOperator, chatID, messageID, callbackID)
-	if err != nil || !freshDelivery {
+	if err != nil {
+		log.Printf("telegram inbound bot=operator stage=redis_claim update_id=%d chat_id=%s error=%v", update.UpdateID, chatID, err)
+		return err
+	}
+	if !freshDelivery {
+		log.Printf("telegram inbound bot=operator stage=redis_claim duplicate=true update_id=%d chat_id=%s message_id=%d callback_id=%q", update.UpdateID, chatID, messageID, callbackID)
 		return err
 	}
 
@@ -734,7 +767,12 @@ func (s *Server) handleTelegramOperatorUpdate(ctx context.Context, operatorAccou
 	}
 
 	isNew, err := s.runtime.repository.MarkTelegramUpdateProcessed(ctx, binding.WorkspaceID, operatorAccount.ID, ChannelKindTelegramOperator, update.UpdateID, chatID, messageID, callbackID)
-	if err != nil || !isNew {
+	if err != nil {
+		log.Printf("telegram inbound bot=operator stage=db_dedup update_id=%d chat_id=%s error=%v", update.UpdateID, chatID, err)
+		return err
+	}
+	if !isNew {
+		log.Printf("telegram inbound bot=operator stage=db_dedup duplicate=true update_id=%d chat_id=%s message_id=%d callback_id=%q", update.UpdateID, chatID, messageID, callbackID)
 		return err
 	}
 	if text == "/start" || text == "Отмена" {
