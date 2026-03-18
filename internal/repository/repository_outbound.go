@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -322,7 +323,54 @@ func (r *Repository) ClearClientBotRoute(ctx context.Context, channelAccountID, 
 	return err
 }
 
+func telegramUpdateDedupIdentity(updateID, messageID int64, callbackID string) (string, string) {
+	if trimmed := strings.TrimSpace(callbackID); trimmed != "" {
+		return "callback", trimmed
+	}
+	if messageID != 0 {
+		return "message", strconv.FormatInt(messageID, 10)
+	}
+	return "update", strconv.FormatInt(updateID, 10)
+}
+
 func (r *Repository) MarkTelegramUpdateProcessed(ctx context.Context, workspaceID, channelAccountID string, botKind ChannelKind, updateID int64, chatID string, messageID int64, callbackID string) (bool, error) {
+	identityKind, identityValue := telegramUpdateDedupIdentity(updateID, messageID, callbackID)
+	var exists bool
+	switch identityKind {
+	case "callback":
+		err := r.db.QueryRowContext(ctx, `
+			SELECT EXISTS(
+				SELECT 1
+				FROM telegram_update_dedup
+				WHERE channel_account_id = NULLIF($1, '')
+				  AND bot_kind = $2
+				  AND chat_id = $3
+				  AND callback_id = $4
+			)
+		`, channelAccountID, botKind, chatID, identityValue).Scan(&exists)
+		if err != nil {
+			return false, err
+		}
+	case "message":
+		err := r.db.QueryRowContext(ctx, `
+			SELECT EXISTS(
+				SELECT 1
+				FROM telegram_update_dedup
+				WHERE channel_account_id = NULLIF($1, '')
+				  AND bot_kind = $2
+				  AND chat_id = $3
+				  AND message_id = $4
+				  AND callback_id = ''
+			)
+		`, channelAccountID, botKind, chatID, messageID).Scan(&exists)
+		if err != nil {
+			return false, err
+		}
+	}
+	if exists {
+		return false, nil
+	}
+
 	result, err := r.db.ExecContext(ctx, `
 		INSERT INTO telegram_update_dedup (
 			id, workspace_id, channel_account_id, bot_kind, update_id, chat_id, message_id, callback_id
