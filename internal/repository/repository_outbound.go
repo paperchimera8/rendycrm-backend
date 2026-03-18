@@ -213,7 +213,7 @@ func (r *Repository) MasterProfile(ctx context.Context, workspaceID string) (Mas
 				  AND ca.connected = TRUE
 				  AND COALESCE(ca.is_enabled, TRUE) = TRUE
 				  AND COALESCE(ca.bot_username, '') <> ''
-				ORDER BY ca.updated_at DESC NULLS LAST, ca.created_at DESC
+				ORDER BY ca.created_at DESC
 				LIMIT 1
 			), '')
 		FROM workspaces w
