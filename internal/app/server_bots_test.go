@@ -125,3 +125,25 @@ func TestTelegramCallbackActionKey(t *testing.T) {
 		t.Fatal("expected different callback action key for different actions")
 	}
 }
+
+func TestTelegramInboundDeliveryKey(t *testing.T) {
+	messageFirst := telegramInboundDeliveryKey("cha_1", ChannelKindTelegramClient, "chat_1", 42, "")
+	messageSecond := telegramInboundDeliveryKey("cha_1", ChannelKindTelegramClient, "chat_1", 42, "")
+	messageThird := telegramInboundDeliveryKey("cha_1", ChannelKindTelegramClient, "chat_1", 43, "")
+	callbackFirst := telegramInboundDeliveryKey("cha_1", ChannelKindTelegramOperator, "chat_1", 42, "cbq-1")
+	callbackSecond := telegramInboundDeliveryKey("cha_1", ChannelKindTelegramOperator, "chat_1", 42, "cbq-1")
+	callbackThird := telegramInboundDeliveryKey("cha_1", ChannelKindTelegramOperator, "chat_1", 42, "cbq-2")
+
+	if messageFirst != messageSecond {
+		t.Fatal("expected stable inbound message key")
+	}
+	if messageFirst == messageThird {
+		t.Fatal("expected different inbound message key for different message ids")
+	}
+	if callbackFirst != callbackSecond {
+		t.Fatal("expected stable inbound callback key")
+	}
+	if callbackFirst == callbackThird {
+		t.Fatal("expected different inbound callback key for different callback ids")
+	}
+}

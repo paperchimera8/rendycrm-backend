@@ -97,6 +97,7 @@ func telegramButtonLabel(command string) string {
 }
 
 const telegramCallbackActionCooldown = 10 * time.Second
+const telegramInboundDeliveryCooldown = 2 * time.Minute
 
 func telegramCallbackActionKey(accountID string, botKind ChannelKind, chatID string, messageID int64, data string) string {
 	hash := sha256.Sum256([]byte(strings.TrimSpace(data)))
@@ -107,6 +108,26 @@ func telegramCallbackActionKey(accountID string, botKind ChannelKind, chatID str
 		strings.TrimSpace(chatID),
 		messageID,
 		hex.EncodeToString(hash[:8]),
+	)
+}
+
+func telegramInboundDeliveryKey(accountID string, botKind ChannelKind, chatID string, messageID int64, callbackID string) string {
+	if trimmed := strings.TrimSpace(callbackID); trimmed != "" {
+		hash := sha256.Sum256([]byte(trimmed))
+		return fmt.Sprintf(
+			"tg:upd:%s:%s:%s:cbq:%s",
+			strings.TrimSpace(accountID),
+			strings.TrimSpace(string(botKind)),
+			strings.TrimSpace(chatID),
+			hex.EncodeToString(hash[:8]),
+		)
+	}
+	return fmt.Sprintf(
+		"tg:upd:%s:%s:%s:msg:%d",
+		strings.TrimSpace(accountID),
+		strings.TrimSpace(string(botKind)),
+		strings.TrimSpace(chatID),
+		messageID,
 	)
 }
 
@@ -219,6 +240,17 @@ func (s *Server) claimTelegramCallbackAction(ctx context.Context, accountID stri
 	}
 	key := telegramCallbackActionKey(accountID, botKind, chatID, messageID, data)
 	return s.runtime.redis.SetNX(ctx, key, "1", telegramCallbackActionCooldown).Result()
+}
+
+func (s *Server) claimTelegramInboundDelivery(ctx context.Context, accountID string, botKind ChannelKind, chatID string, messageID int64, callbackID string) (bool, error) {
+	if strings.TrimSpace(accountID) == "" || strings.TrimSpace(chatID) == "" {
+		return true, nil
+	}
+	if messageID == 0 && strings.TrimSpace(callbackID) == "" {
+		return true, nil
+	}
+	key := telegramInboundDeliveryKey(accountID, botKind, chatID, messageID, callbackID)
+	return s.runtime.redis.SetNX(ctx, key, "1", telegramInboundDeliveryCooldown).Result()
 }
 
 func (s *Server) selectMasterByPhone(ctx context.Context, account ChannelAccount, chatID, rawPhone, profileName string, user *tgapi.User, contact *tgapi.Contact) error {
@@ -342,6 +374,10 @@ func (s *Server) handleTelegramClientUpdate(ctx context.Context, account Channel
 	if chatID == "" {
 		return nil
 	}
+	freshDelivery, err := s.claimTelegramInboundDelivery(ctx, account.ID, ChannelKindTelegramClient, chatID, messageID, callbackID)
+	if err != nil || !freshDelivery {
+		return err
+	}
 	isNew, err := s.runtime.repository.MarkTelegramUpdateProcessed(ctx, account.WorkspaceID, account.ID, ChannelKindTelegramClient, update.UpdateID, chatID, messageID, callbackID)
 	if err != nil || !isNew {
 		return err
@@ -362,8 +398,8 @@ func (s *Server) handleTelegramClientUpdate(ctx context.Context, account Channel
 	}
 	if startPayload, isStart := telegramStartPayload(text); isStart {
 		if account.AccountScope == ChannelAccountScopeGlobal {
-			_ = s.runtime.services.BotSessions.ClearClientRoute(ctx, domain.SystemActor(), account.ID, chatID)
 			if masterPhone := telegramMasterPhoneFromStartPayload(startPayload); masterPhone != "" {
+				_ = s.runtime.services.BotSessions.ClearClientRoute(ctx, domain.SystemActor(), account.ID, chatID)
 				return s.selectMasterByPhone(ctx, account, chatID, masterPhone, profileName, update.Message.From, update.Message.Contact)
 			}
 			return s.promptTelegramMasterPhone(ctx, account, chatID, true)
@@ -649,6 +685,13 @@ func (s *Server) handleTelegramOperatorUpdate(ctx context.Context, operatorAccou
 		return nil
 	}
 
+	messageID := messageIDFromUpdate(update)
+	callbackID := callbackIDFromUpdate(update)
+	freshDelivery, err := s.claimTelegramInboundDelivery(ctx, operatorAccount.ID, ChannelKindTelegramOperator, chatID, messageID, callbackID)
+	if err != nil || !freshDelivery {
+		return err
+	}
+
 	if strings.HasPrefix(text, "/start ") {
 		code := strings.TrimSpace(strings.TrimPrefix(text, "/start "))
 		if _, err := s.runtime.services.OperatorLink.LinkTelegram(ctx, code, userID, chatID); err != nil {
@@ -690,7 +733,7 @@ func (s *Server) handleTelegramOperatorUpdate(ctx context.Context, operatorAccou
 		}
 	}
 
-	isNew, err := s.runtime.repository.MarkTelegramUpdateProcessed(ctx, binding.WorkspaceID, operatorAccount.ID, ChannelKindTelegramOperator, update.UpdateID, chatID, messageIDFromUpdate(update), callbackIDFromUpdate(update))
+	isNew, err := s.runtime.repository.MarkTelegramUpdateProcessed(ctx, binding.WorkspaceID, operatorAccount.ID, ChannelKindTelegramOperator, update.UpdateID, chatID, messageID, callbackID)
 	if err != nil || !isNew {
 		return err
 	}
