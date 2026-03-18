@@ -148,8 +148,13 @@ func callAPI[T any](ctx context.Context, httpClient *http.Client, baseURL, token
 					return zero, err
 				}
 				if !parsed.OK {
+					statusCode := resp.StatusCode
+					if parsed.ErrorCode > 0 {
+						statusCode = parsed.ErrorCode
+					}
 					lastErr = &APIError{
 						Method:      method,
+						StatusCode:  statusCode,
 						Description: parsed.Description,
 						Retriable:   false,
 					}
@@ -158,7 +163,8 @@ func callAPI[T any](ctx context.Context, httpClient *http.Client, baseURL, token
 				}
 			} else {
 				retryAfter := parseRetryAfter(resp, rawBody)
-				log.Printf("telegram api error method=%s status=%d retry_after=%s", method, resp.StatusCode, retryAfter)
+				description := parseErrorDescription(resp.StatusCode, rawBody)
+				log.Printf("telegram api error method=%s status=%d retry_after=%s description=%q", method, resp.StatusCode, retryAfter, description)
 				if shouldRetryStatus(resp.StatusCode) && attempt < 3 {
 					if retryAfter > 0 {
 						delay = retryAfter
@@ -174,7 +180,7 @@ func callAPI[T any](ctx context.Context, httpClient *http.Client, baseURL, token
 				lastErr = &APIError{
 					Method:      method,
 					StatusCode:  resp.StatusCode,
-					Description: strings.TrimSpace(http.StatusText(resp.StatusCode)),
+					Description: description,
 					RetryAfter:  retryAfter,
 					Retriable:   shouldRetryStatus(resp.StatusCode),
 				}
@@ -216,4 +222,15 @@ func parseRetryAfter(resp *http.Response, body []byte) time.Duration {
 		return time.Duration(parsed.Parameters.RetryAfter) * time.Second
 	}
 	return 0
+}
+
+func parseErrorDescription(statusCode int, body []byte) string {
+	description := strings.TrimSpace(http.StatusText(statusCode))
+	var parsed APIResponse[json.RawMessage]
+	if err := json.Unmarshal(body, &parsed); err == nil {
+		if value := strings.TrimSpace(parsed.Description); value != "" {
+			return value
+		}
+	}
+	return description
 }

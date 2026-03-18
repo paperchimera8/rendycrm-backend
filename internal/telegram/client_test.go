@@ -3,6 +3,7 @@ package telegram
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"sync/atomic"
@@ -93,5 +94,36 @@ func TestDeleteWebhookSendsRequest(t *testing.T) {
 	}
 	if !payload.DropPendingUpdates {
 		t.Fatalf("expected drop pending updates flag")
+	}
+}
+
+func TestSendTextReturnsTelegramDescriptionOn400(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = w.Write([]byte(`{"ok":false,"error_code":400,"description":"Bad Request: chat not found"}`))
+	}))
+	defer server.Close()
+
+	client := NewAPIClient(server.URL)
+	_, err := client.SendText(context.Background(), "token", SendMessageRequest{
+		ChatID: "7007007001",
+		Text:   "hello",
+	})
+	if err == nil {
+		t.Fatal("expected error")
+	}
+
+	var apiErr *APIError
+	if !errors.As(err, &apiErr) {
+		t.Fatalf("expected APIError, got %T", err)
+	}
+	if apiErr.StatusCode != http.StatusBadRequest {
+		t.Fatalf("unexpected status code: %+v", apiErr)
+	}
+	if apiErr.Description != "Bad Request: chat not found" {
+		t.Fatalf("unexpected description: %+v", apiErr)
+	}
+	if apiErr.Retriable {
+		t.Fatalf("unexpected retriable flag: %+v", apiErr)
 	}
 }
