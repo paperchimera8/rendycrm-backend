@@ -93,7 +93,9 @@ describe('SettingsPage', () => {
         workspaceId: 'ws_demo',
         masterPhoneRaw: '+7 (999) 111-22-33',
         masterPhoneNormalized: '79991112233',
-        telegramEnabled: true
+        telegramEnabled: true,
+        clientBotUsername: 'rendycrmbot',
+        clientBotDeepLink: 'https://t.me/rendycrmbot?start=master_79991112233'
       }
     })
 
@@ -103,5 +105,6 @@ describe('SettingsPage', () => {
     expect(screen.getByText(/Привязан: tg-chat-1/)).toBeInTheDocument()
     expect(screen.getByText(/https:\/\/t\.me\/rendycrm_operator_bot\?start=link_123/)).toBeInTheDocument()
     expect(screen.getByPlaceholderText('+7')).toBeInTheDocument()
+    expect(screen.getByText(/https:\/\/t\.me\/rendycrmbot\?start=master_79991112233/)).toBeInTheDocument()
   })
 })

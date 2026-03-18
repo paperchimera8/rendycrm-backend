@@ -191,6 +191,8 @@ export type MasterProfile = {
   masterPhoneRaw: string
   masterPhoneNormalized: string
   telegramEnabled: boolean
+  clientBotUsername: string
+  clientBotDeepLink: string
 }
 
 export type BotConfig = {

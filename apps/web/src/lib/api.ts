@@ -399,7 +399,9 @@ export async function getMasterProfile() {
       workspaceId: '',
       masterPhoneRaw: '',
       masterPhoneNormalized: '',
-      telegramEnabled: false
+      telegramEnabled: false,
+      clientBotUsername: '',
+      clientBotDeepLink: ''
     }
   )
 }

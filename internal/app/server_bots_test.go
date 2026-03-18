@@ -29,3 +29,37 @@ func TestTelegramWebhookURL(t *testing.T) {
 		t.Fatalf("unexpected operator webhook url: %s", operatorURL)
 	}
 }
+
+func TestTelegramStartPayload(t *testing.T) {
+	payload, ok := telegramStartPayload("/start master_79991112233")
+	if !ok {
+		t.Fatal("expected /start payload to be detected")
+	}
+	if payload != "master_79991112233" {
+		t.Fatalf("unexpected payload: %s", payload)
+	}
+
+	payload, ok = telegramStartPayload("/start@rendycrmbot")
+	if !ok {
+		t.Fatal("expected /start@bot to be detected")
+	}
+	if payload != "" {
+		t.Fatalf("expected empty payload, got %s", payload)
+	}
+
+	if _, ok := telegramStartPayload("/dialogs"); ok {
+		t.Fatal("did not expect non-start command to match")
+	}
+}
+
+func TestTelegramMasterPhoneFromStartPayload(t *testing.T) {
+	if got := telegramMasterPhoneFromStartPayload("master_79991112233"); got != "79991112233" {
+		t.Fatalf("unexpected master payload parse: %s", got)
+	}
+	if got := telegramMasterPhoneFromStartPayload("phone_+7 999 111-22-33"); got != "+7 999 111-22-33" {
+		t.Fatalf("unexpected phone payload parse: %s", got)
+	}
+	if got := telegramMasterPhoneFromStartPayload("79991112233"); got != "79991112233" {
+		t.Fatalf("unexpected raw payload parse: %s", got)
+	}
+}

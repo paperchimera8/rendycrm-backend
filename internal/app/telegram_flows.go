@@ -105,13 +105,44 @@ func defaultClientBotButtons() []TelegramInlineButton {
 	}
 }
 
+func telegramStartPayload(text string) (string, bool) {
+	text = strings.TrimSpace(text)
+	if text == "" {
+		return "", false
+	}
+	command, rest, _ := strings.Cut(text, " ")
+	command = strings.TrimSpace(command)
+	if command == "" {
+		return "", false
+	}
+	command = strings.SplitN(command, "@", 2)[0]
+	if !strings.EqualFold(command, "/start") {
+		return "", false
+	}
+	return strings.TrimSpace(rest), true
+}
+
+func telegramMasterPhoneFromStartPayload(payload string) string {
+	payload = strings.TrimSpace(payload)
+	switch {
+	case strings.HasPrefix(strings.ToLower(payload), "master_"):
+		return strings.TrimSpace(payload[len("master_"):])
+	case strings.HasPrefix(strings.ToLower(payload), "phone_"):
+		return strings.TrimSpace(payload[len("phone_"):])
+	default:
+		return payload
+	}
+}
+
 func (s *Server) promptTelegramMasterPhone(ctx context.Context, account ChannelAccount, chatID string) error {
-	_, _ = s.runtime.services.BotSessions.StoreClientRoute(ctx, domain.SystemActor(), usecase.ClientBotRouteInput{
+	if _, err := s.runtime.services.BotSessions.StoreClientRoute(ctx, domain.SystemActor(), usecase.ClientBotRouteInput{
 		ChannelAccountID: account.ID,
 		ExternalChatID:   chatID,
 		State:            "awaiting_master_phone",
 		ExpiresAt:        time.Now().UTC().Add(30 * 24 * time.Hour),
-	})
+	}); err != nil {
+		return err
+	}
 	return s.enqueueTelegramOutbound(ctx, account, OutboundKindTelegramSendInline, "", "", TelegramOutboundPayload{
 		ChatID: chatID,
 		Text:   "Введите номер мастера, к которому хотите записаться.",
@@ -268,9 +299,12 @@ func (s *Server) handleTelegramClientUpdate(ctx context.Context, account Channel
 	if update.Message.From != nil {
 		profileName = strings.TrimSpace(strings.TrimSpace(update.Message.From.FirstName + " " + update.Message.From.LastName))
 	}
-	if strings.EqualFold(text, "/start") {
+	if startPayload, isStart := telegramStartPayload(text); isStart {
 		if account.AccountScope == ChannelAccountScopeGlobal {
 			_ = s.runtime.services.BotSessions.ClearClientRoute(ctx, domain.SystemActor(), account.ID, chatID)
+			if masterPhone := telegramMasterPhoneFromStartPayload(startPayload); masterPhone != "" {
+				return s.selectMasterByPhone(ctx, account, chatID, masterPhone, profileName, update.Message.From, update.Message.Contact)
+			}
 			return s.promptTelegramMasterPhone(ctx, account, chatID)
 		}
 		if _, err := s.runtime.repository.EnsureCustomerIdentity(ctx, account.WorkspaceID, ChannelTelegram, chatID, InboundProfile{

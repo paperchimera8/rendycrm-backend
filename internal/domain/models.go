@@ -373,6 +373,8 @@ type MasterProfile struct {
 	MasterPhoneRaw        string `json:"masterPhoneRaw"`
 	MasterPhoneNormalized string `json:"masterPhoneNormalized"`
 	TelegramEnabled       bool   `json:"telegramEnabled"`
+	ClientBotUsername     string `json:"clientBotUsername"`
+	ClientBotDeepLink     string `json:"clientBotDeepLink"`
 }
 
 type BotSession struct {

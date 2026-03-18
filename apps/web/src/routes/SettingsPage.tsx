@@ -239,6 +239,19 @@ export function SettingsPage() {
             <p className="text-xs text-[#8e8e8e]">
               Этот номер клиент вводит в общем Telegram client bot, чтобы попасть в ваш кабинет.
             </p>
+            {masterProfile.data?.clientBotDeepLink ? (
+              <div className="rounded-[10px] border border-[#ebebeb] bg-[#faf8f2] px-4 py-3">
+                <span className="mb-1 block text-xs font-medium text-[#8e8e8e]">Ссылка для клиента</span>
+                <a
+                  href={masterProfile.data.clientBotDeepLink}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="break-all text-sm text-[#5d6b9a] underline decoration-[#c5cbe0] underline-offset-4"
+                >
+                  {masterProfile.data.clientBotDeepLink}
+                </a>
+              </div>
+            ) : null}
           </div>
         </SectionCard>
 

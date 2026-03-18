@@ -199,14 +199,42 @@ func (r *Repository) MasterProfile(ctx context.Context, workspaceID string) (Mas
 				FROM channel_accounts ca
 				WHERE ca.workspace_id = w.id
 				  AND ca.channel_kind = 'telegram_client'
-				  AND COALESCE(ca.account_scope, 'workspace') = 'workspace'
+				  AND COALESCE(ca.account_scope, 'workspace') IN ('workspace', 'global')
 				  AND ca.revoked_at IS NULL
 				  AND ca.connected = TRUE
 				  AND COALESCE(ca.is_enabled, TRUE) = TRUE
-			)
+			),
+			COALESCE((
+				SELECT ca.bot_username
+				FROM channel_accounts ca
+				WHERE ca.channel_kind = 'telegram_client'
+				  AND COALESCE(ca.account_scope, 'workspace') = 'global'
+				  AND ca.revoked_at IS NULL
+				  AND ca.connected = TRUE
+				  AND COALESCE(ca.is_enabled, TRUE) = TRUE
+				  AND COALESCE(ca.bot_username, '') <> ''
+				ORDER BY ca.updated_at DESC NULLS LAST, ca.created_at DESC
+				LIMIT 1
+			), '')
 		FROM workspaces w
 		WHERE w.id = $1
-	`, workspaceID).Scan(&profile.WorkspaceID, &profile.MasterPhoneRaw, &profile.MasterPhoneNormalized, &profile.TelegramEnabled)
+	`, workspaceID).Scan(
+		&profile.WorkspaceID,
+		&profile.MasterPhoneRaw,
+		&profile.MasterPhoneNormalized,
+		&profile.TelegramEnabled,
+		&profile.ClientBotUsername,
+	)
+	if err != nil {
+		return profile, err
+	}
+	if strings.TrimSpace(profile.ClientBotUsername) != "" && strings.TrimSpace(profile.MasterPhoneNormalized) != "" {
+		profile.ClientBotDeepLink = fmt.Sprintf(
+			"https://t.me/%s?start=master_%s",
+			strings.TrimPrefix(strings.TrimSpace(profile.ClientBotUsername), "@"),
+			strings.TrimSpace(profile.MasterPhoneNormalized),
+		)
+	}
 	return profile, err
 }
 

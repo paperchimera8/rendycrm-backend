@@ -247,6 +247,18 @@ func TestMasterProfileAndClientBotRoute(t *testing.T) {
 	repo, db, workspaceID, _, cleanup := newIntegrationRepository(t, "Europe/Moscow")
 	defer cleanup()
 	seedInboxChannelAccount(t, db, workspaceID, "cha_test_route", ChannelTelegram, "route-secret")
+	if _, err := db.ExecContext(context.Background(), `
+		INSERT INTO channel_accounts (
+			id, workspace_id, provider, channel_kind, account_scope, account_name,
+			connected, is_enabled, external_account_id, bot_username, webhook_secret
+		)
+		VALUES (
+			'cha_global_test', $1, 'telegram', 'telegram_client', 'global', 'Global Telegram bot',
+			TRUE, TRUE, 'tg-global', 'rendycrmbot', 'global-secret'
+		)
+	`, workspaceID); err != nil {
+		t.Fatalf("seed global client bot: %v", err)
+	}
 
 	profile, err := repo.UpdateMasterProfile(context.Background(), workspaceID, "+7 (999) 444-55-66")
 	if err != nil {
@@ -254,6 +266,13 @@ func TestMasterProfileAndClientBotRoute(t *testing.T) {
 	}
 	if profile.MasterPhoneNormalized != "79994445566" {
 		t.Fatalf("unexpected normalized phone: %s", profile.MasterPhoneNormalized)
+	}
+	if profile.ClientBotUsername != "rendycrmbot" {
+		t.Fatalf("unexpected client bot username: %s", profile.ClientBotUsername)
+	}
+	expectedDeepLink := "https://t.me/rendycrmbot?start=master_79994445566"
+	if profile.ClientBotDeepLink != expectedDeepLink {
+		t.Fatalf("unexpected client bot deep link: %s", profile.ClientBotDeepLink)
 	}
 
 	workspace, err := repo.WorkspaceByMasterPhone(context.Background(), "79994445566")
