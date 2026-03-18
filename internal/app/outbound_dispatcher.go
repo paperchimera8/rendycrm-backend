@@ -13,6 +13,8 @@ import (
 	tgapi "github.com/vital/rendycrm-app/internal/telegram"
 )
 
+const outboundDispatchCooldown = 30 * time.Second
+
 func (s *Server) processOutboundMessages(ctx context.Context) {
 	for {
 		select {
@@ -31,10 +33,28 @@ func (s *Server) processOutboundMessages(ctx context.Context) {
 			time.Sleep(time.Second)
 			continue
 		}
+		freshDispatch, err := s.claimOutboundDispatch(ctx, item.ID)
+		if err != nil {
+			log.Printf("outbound dispatch lock error id=%s: %v", item.ID, err)
+			time.Sleep(200 * time.Millisecond)
+			continue
+		}
+		if !freshDispatch {
+			log.Printf("outbound dispatch skipped duplicate id=%s kind=%s", item.ID, item.Kind)
+			time.Sleep(200 * time.Millisecond)
+			continue
+		}
 		if err := s.dispatchOutboundMessage(ctx, item); err != nil {
 			log.Printf("outbound dispatch failed id=%s kind=%s: %v", item.ID, item.Kind, err)
 		}
 	}
+}
+
+func (s *Server) claimOutboundDispatch(ctx context.Context, outboundID string) (bool, error) {
+	if strings.TrimSpace(outboundID) == "" {
+		return false, errors.New("outbound id is empty")
+	}
+	return s.runtime.redis.SetNX(ctx, "telegram:outbound-dispatch:"+outboundID, "1", outboundDispatchCooldown).Result()
 }
 
 func (s *Server) dispatchOutboundMessage(ctx context.Context, item OutboundMessage) error {
