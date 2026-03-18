@@ -1,6 +1,9 @@
 package app
 
-import "testing"
+import (
+	"testing"
+	"time"
+)
 
 func TestTelegramWebhookURL(t *testing.T) {
 	server := &Server{cfg: Config{PublicBaseURL: "https://rendycrm.ru/api"}}
@@ -73,5 +76,39 @@ func TestTelegramClientWelcomeText(t *testing.T) {
 	}
 	if telegramClientWelcomeText() == telegramClientMasterPhonePromptText() {
 		t.Fatal("expected welcome and prompt texts to differ")
+	}
+}
+
+func TestShouldSkipTelegramRoutePrompt(t *testing.T) {
+	now := time.Now().UTC()
+	if !shouldSkipTelegramRoutePrompt(ClientBotRoute{
+		ChannelAccountID: "cha_1",
+		State:            "awaiting_master_phone",
+		UpdatedAt:        now.Add(-time.Minute),
+		ExpiresAt:        now.Add(time.Hour),
+	}, "awaiting_master_phone", "", "", now) {
+		t.Fatal("expected awaiting prompt to be skipped inside cooldown")
+	}
+
+	if !shouldSkipTelegramRoutePrompt(ClientBotRoute{
+		ChannelAccountID:              "cha_1",
+		State:                         "ready",
+		SelectedWorkspaceID:           "ws_1",
+		SelectedMasterPhoneNormalized: "79991112233",
+		UpdatedAt:                     now.Add(-time.Minute),
+		ExpiresAt:                     now.Add(time.Hour),
+	}, "ready", "ws_1", "79991112233", now) {
+		t.Fatal("expected ready prompt to be skipped for same master inside cooldown")
+	}
+
+	if shouldSkipTelegramRoutePrompt(ClientBotRoute{
+		ChannelAccountID:              "cha_1",
+		State:                         "ready",
+		SelectedWorkspaceID:           "ws_1",
+		SelectedMasterPhoneNormalized: "79991112233",
+		UpdatedAt:                     now.Add(-3 * time.Minute),
+		ExpiresAt:                     now.Add(time.Hour),
+	}, "ready", "ws_1", "79991112233", now) {
+		t.Fatal("did not expect cooldown to suppress old prompt")
 	}
 }

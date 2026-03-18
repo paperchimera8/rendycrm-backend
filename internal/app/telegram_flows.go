@@ -142,12 +142,33 @@ func telegramClientMasterPhonePromptText() string {
 	return "Введите номер мастера, к которому хотите записаться."
 }
 
+const telegramClientRoutePromptCooldown = 2 * time.Minute
+
+func shouldSkipTelegramRoutePrompt(route ClientBotRoute, state, workspaceID, normalizedPhone string, now time.Time) bool {
+	if route.ChannelAccountID == "" || route.State != state {
+		return false
+	}
+	if !route.ExpiresAt.IsZero() && route.ExpiresAt.Before(now) {
+		return false
+	}
+	if state == "ready" {
+		if route.SelectedWorkspaceID != workspaceID || route.SelectedMasterPhoneNormalized != normalizedPhone {
+			return false
+		}
+	}
+	return route.UpdatedAt.Add(telegramClientRoutePromptCooldown).After(now)
+}
+
 func (s *Server) promptTelegramMasterPhone(ctx context.Context, account ChannelAccount, chatID string, welcome bool) error {
+	now := time.Now().UTC()
+	if route, err := s.runtime.repository.ClientBotRouteByChat(ctx, account.ID, chatID); err == nil && shouldSkipTelegramRoutePrompt(route, "awaiting_master_phone", "", "", now) {
+		return nil
+	}
 	if _, err := s.runtime.services.BotSessions.StoreClientRoute(ctx, domain.SystemActor(), usecase.ClientBotRouteInput{
 		ChannelAccountID: account.ID,
 		ExternalChatID:   chatID,
 		State:            "awaiting_master_phone",
-		ExpiresAt:        time.Now().UTC().Add(30 * 24 * time.Hour),
+		ExpiresAt:        now.Add(30 * 24 * time.Hour),
 	}); err != nil {
 		return err
 	}
@@ -211,13 +232,17 @@ func (s *Server) selectMasterByPhone(ctx context.Context, account ChannelAccount
 			},
 		})
 	}
+	now := time.Now().UTC()
+	if route, err := s.runtime.repository.ClientBotRouteByChat(ctx, account.ID, chatID); err == nil && shouldSkipTelegramRoutePrompt(route, "ready", workspace.ID, normalized, now) {
+		return nil
+	}
 	if _, err := s.runtime.services.BotSessions.StoreClientRoute(ctx, domain.SystemActor(), usecase.ClientBotRouteInput{
 		ChannelAccountID:              account.ID,
 		ExternalChatID:                chatID,
 		SelectedWorkspaceID:           workspace.ID,
 		SelectedMasterPhoneNormalized: normalized,
 		State:                         "ready",
-		ExpiresAt:                     time.Now().UTC().Add(30 * 24 * time.Hour),
+		ExpiresAt:                     now.Add(30 * 24 * time.Hour),
 	}); err != nil {
 		return err
 	}
