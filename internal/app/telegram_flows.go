@@ -99,7 +99,7 @@ func telegramButtonLabel(command string) string {
 
 const telegramCallbackActionCooldown = 10 * time.Second
 const telegramInboundDeliveryCooldown = 2 * time.Minute
-const telegramClientStartPromptCooldown = 2 * time.Minute
+const telegramClientStartPromptCooldown = 45 * time.Second
 
 func telegramCallbackActionKey(accountID string, botKind ChannelKind, chatID string, messageID int64, data string) string {
 	hash := sha256.Sum256([]byte(strings.TrimSpace(data)))
@@ -245,6 +245,7 @@ func (s *Server) promptTelegramMasterPhone(ctx context.Context, account ChannelA
 		return err
 	}
 	if !freshPrompt {
+		log.Printf("telegram client prompt skipped duplicate account_id=%s chat_id=%s welcome=%t", account.ID, chatID, welcome)
 		return nil
 	}
 	return s.enqueueTelegramOutbound(ctx, account, OutboundKindTelegramSendInline, "", "", TelegramOutboundPayload{
