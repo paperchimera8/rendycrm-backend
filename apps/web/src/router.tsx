@@ -24,6 +24,11 @@ const rootRoute = createRootRouteWithContext<RouterContext>()({
 const loginRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: 'login',
+  beforeLoad: async () => {
+    if (getToken()) {
+      throw redirect({ to: '/dialogs' })
+    }
+  },
   component: LoginPage,
   errorComponent: RouterErrorView
 })

@@ -281,7 +281,7 @@ func (s *Server) handleApp(w http.ResponseWriter, r *http.Request) {
 	}
 	cleanPath := filepath.Clean("/" + requestPath)
 	if s.cfg.AppBasePath != "" && isIndexPath(cleanPath) {
-		http.Redirect(w, r, s.cfg.AppBasePath+"/dialogs", http.StatusFound)
+		http.Redirect(w, r, s.cfg.AppBasePath+"/login", http.StatusFound)
 		return
 	}
 	targetPath := filepath.Join(staticDir, filepath.FromSlash(strings.TrimPrefix(cleanPath, "/")))
