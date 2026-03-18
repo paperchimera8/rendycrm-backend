@@ -1,7 +1,7 @@
 const runtimeAppBasePath = window.RUNTIME_CONFIG?.APP_BASE_PATH?.trim()
 const envAppBasePath = import.meta.env.VITE_APP_BASE_PATH?.trim()
 
-function normalizePath(raw: string | undefined): string {
+export function normalizePath(raw: string | undefined): string {
   const value = (raw || '').trim()
   if (!value || value === '/') {
     return '/'
@@ -10,7 +10,17 @@ function normalizePath(raw: string | undefined): string {
   return segments.length ? `/${segments.join('/')}` : '/'
 }
 
-export const APP_BASE_PATH = normalizePath(runtimeAppBasePath || envAppBasePath || '/')
+export function resolveAppBasePath(runtimePath: string | undefined, envPath: string | undefined): string {
+  const normalizedRuntimePath = normalizePath(runtimePath)
+  const normalizedEnvPath = normalizePath(envPath)
+
+  if (normalizedRuntimePath === '/' && normalizedEnvPath !== '/') {
+    return normalizedEnvPath
+  }
+  return normalizedRuntimePath !== '/' ? normalizedRuntimePath : normalizedEnvPath
+}
+
+export const APP_BASE_PATH = resolveAppBasePath(runtimeAppBasePath, envAppBasePath)
 
 export function appUrl(path: string): string {
   const normalizedPath = normalizePath(path)
