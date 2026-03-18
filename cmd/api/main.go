@@ -11,6 +11,8 @@ import (
 	"github.com/vital/rendycrm-app/internal/app"
 )
 
+const buildMarker = "telegram-debug-20260318b"
+
 func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
@@ -39,6 +41,7 @@ func main() {
 		}
 	}()
 
+	log.Printf("build marker=%s", buildMarker)
 	log.Printf("api listening on :%s", cfg.Port)
 	if err := httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 		log.Fatal(err)

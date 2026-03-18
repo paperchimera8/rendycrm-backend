@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"net/url"
 	"sort"
@@ -235,6 +236,7 @@ func (s *Server) handleTelegramOperatorWebhook(w http.ResponseWriter, r *http.Re
 		s.writeError(w, http.StatusBadRequest, "invalid telegram update")
 		return
 	}
+	log.Printf("telegram webhook bot=operator path=%s body_bytes=%d", r.URL.Path, len(body))
 	update, err := telegram.ParseUpdate(body)
 	if err != nil {
 		s.writeError(w, http.StatusBadRequest, "invalid telegram update")
@@ -546,6 +548,7 @@ func (s *Server) handleTelegramClientWebhook(w http.ResponseWriter, r *http.Requ
 		s.writeError(w, http.StatusBadRequest, "invalid telegram update")
 		return
 	}
+	log.Printf("telegram webhook bot=client account_id=%s path=%s body_bytes=%d", account.ID, r.URL.Path, len(body))
 	update, err := telegram.ParseUpdate(body)
 	if err != nil {
 		s.writeError(w, http.StatusBadRequest, "invalid telegram update")
