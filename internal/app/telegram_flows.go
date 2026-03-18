@@ -134,7 +134,15 @@ func telegramMasterPhoneFromStartPayload(payload string) string {
 	}
 }
 
-func (s *Server) promptTelegramMasterPhone(ctx context.Context, account ChannelAccount, chatID string) error {
+func telegramClientWelcomeText() string {
+	return "Здравствуйте!\nЯ помогу связаться с нужным мастером и передам ваши сообщения в CRM.\n\nВведите номер мастера, к которому хотите записаться."
+}
+
+func telegramClientMasterPhonePromptText() string {
+	return "Введите номер мастера, к которому хотите записаться."
+}
+
+func (s *Server) promptTelegramMasterPhone(ctx context.Context, account ChannelAccount, chatID string, welcome bool) error {
 	if _, err := s.runtime.services.BotSessions.StoreClientRoute(ctx, domain.SystemActor(), usecase.ClientBotRouteInput{
 		ChannelAccountID: account.ID,
 		ExternalChatID:   chatID,
@@ -143,9 +151,13 @@ func (s *Server) promptTelegramMasterPhone(ctx context.Context, account ChannelA
 	}); err != nil {
 		return err
 	}
+	text := telegramClientMasterPhonePromptText()
+	if welcome {
+		text = telegramClientWelcomeText()
+	}
 	return s.enqueueTelegramOutbound(ctx, account, OutboundKindTelegramSendInline, "", "", TelegramOutboundPayload{
 		ChatID: chatID,
-		Text:   "Введите номер мастера, к которому хотите записаться.",
+		Text:   text,
 		Buttons: []TelegramInlineButton{
 			{Text: "Ввести номер мастера", CallbackData: "client:enter_master_phone"},
 		},
@@ -305,7 +317,7 @@ func (s *Server) handleTelegramClientUpdate(ctx context.Context, account Channel
 			if masterPhone := telegramMasterPhoneFromStartPayload(startPayload); masterPhone != "" {
 				return s.selectMasterByPhone(ctx, account, chatID, masterPhone, profileName, update.Message.From, update.Message.Contact)
 			}
-			return s.promptTelegramMasterPhone(ctx, account, chatID)
+			return s.promptTelegramMasterPhone(ctx, account, chatID, true)
 		}
 		if _, err := s.runtime.repository.EnsureCustomerIdentity(ctx, account.WorkspaceID, ChannelTelegram, chatID, InboundProfile{
 			Name:     profileName,
@@ -324,7 +336,7 @@ func (s *Server) handleTelegramClientUpdate(ctx context.Context, account Channel
 	if account.AccountScope == ChannelAccountScopeGlobal {
 		if strings.EqualFold(text, "сменить мастера") {
 			_ = s.runtime.services.BotSessions.ClearClientRoute(ctx, domain.SystemActor(), account.ID, chatID)
-			return s.promptTelegramMasterPhone(ctx, account, chatID)
+			return s.promptTelegramMasterPhone(ctx, account, chatID, false)
 		}
 		route, err := s.selectedClientRoute(ctx, account, chatID)
 		if err != nil {
@@ -392,11 +404,11 @@ func (s *Server) handleTelegramClientCallback(ctx context.Context, account Chann
 		switch data {
 		case "client:change_master", "client:enter_master_phone":
 			_ = s.runtime.services.BotSessions.ClearClientRoute(ctx, domain.SystemActor(), account.ID, chatID)
-			return s.promptTelegramMasterPhone(ctx, account, chatID)
+			return s.promptTelegramMasterPhone(ctx, account, chatID, false)
 		}
 		route, err := s.selectedClientRoute(ctx, account, chatID)
 		if err != nil {
-			return s.promptTelegramMasterPhone(ctx, account, chatID)
+			return s.promptTelegramMasterPhone(ctx, account, chatID, true)
 		}
 		targetWorkspaceID = route.SelectedWorkspaceID
 	}

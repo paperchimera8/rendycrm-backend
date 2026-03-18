@@ -63,3 +63,15 @@ func TestTelegramMasterPhoneFromStartPayload(t *testing.T) {
 		t.Fatalf("unexpected raw payload parse: %s", got)
 	}
 }
+
+func TestTelegramClientWelcomeText(t *testing.T) {
+	if got := telegramClientWelcomeText(); got == "" {
+		t.Fatal("expected welcome text")
+	}
+	if got := telegramClientMasterPhonePromptText(); got == "" {
+		t.Fatal("expected prompt text")
+	}
+	if telegramClientWelcomeText() == telegramClientMasterPhonePromptText() {
+		t.Fatal("expected welcome and prompt texts to differ")
+	}
+}
