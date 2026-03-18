@@ -3,11 +3,11 @@ services:
     build:
       context: ..
       dockerfile: Dockerfile
-    expose:
-      - "3000"
+    ports:
+      - "${API_PORT:-3000}:3000"
     environment:
       PORT: "3000"
-      STATIC_DIR: ""
+      STATIC_DIR: "/web"
       POSTGRES_DSN: ${POSTGRES_DSN:-}
       POSTGRES_HOST: ${POSTGRES_HOST:-}
       POSTGRES_PORT: ${POSTGRES_PORT:-5432}
@@ -27,21 +27,4 @@ services:
       APP_ENCRYPTION_SECRET: ${APP_ENCRYPTION_SECRET:-change-me-in-production}
       ENABLE_DEMO_SEED: ${ENABLE_DEMO_SEED:-false}
       CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-}
-    restart: unless-stopped
-
-  web:
-    build:
-      context: ..
-      dockerfile: apps/web/Dockerfile
-      args:
-        VITE_API_BASE_URL: ${VITE_API_BASE_URL:-/api}
-    ports:
-      - "${WEB_PORT:-3000}:${NGINX_PORT:-8080}"
-    environment:
-      NGINX_PORT: ${NGINX_PORT:-8080}
-      API_BASE_URL: ${API_BASE_URL:-/api}
-      API_UPSTREAM: ${API_UPSTREAM:-http://api:3000}
-    depends_on:
-      api:
-        condition: service_started
     restart: unless-stopped
