@@ -3,6 +3,7 @@ dist/
 coverage/
 .env
 .env.*
+!rendycrm-bk/.env.example
 .DS_Store
 apps/web/node_modules/
 
