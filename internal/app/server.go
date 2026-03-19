@@ -28,11 +28,10 @@ type AuthContext struct {
 const sessionCookieName = "rendycrm_session"
 
 type Server struct {
-	cfg       Config
-	runtime   *Runtime
-	botEngine *botEngineClient
-	mux       *http.ServeMux
-	apiMux    *http.ServeMux
+	cfg     Config
+	runtime *Runtime
+	mux     *http.ServeMux
+	apiMux  *http.ServeMux
 }
 
 func NewServer(ctx context.Context, cfg Config) (*Server, error) {
@@ -40,15 +39,7 @@ func NewServer(ctx context.Context, cfg Config) (*Server, error) {
 	if err != nil {
 		return nil, err
 	}
-	server := &Server{
-		cfg:     cfg,
-		runtime: runtime,
-		mux:     http.NewServeMux(),
-		apiMux:  http.NewServeMux(),
-	}
-	if cfg.BotEngineEnabled {
-		server.botEngine = newBotEngineClient(cfg.BotEngineBaseURL)
-	}
+	server := &Server{cfg: cfg, runtime: runtime, mux: http.NewServeMux(), apiMux: http.NewServeMux()}
 	server.routes()
 	server.startWorker(ctx)
 	return server, nil

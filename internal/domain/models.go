@@ -377,13 +377,6 @@ type MasterProfile struct {
 	ClientBotDeepLink     string `json:"clientBotDeepLink"`
 }
 
-type ClientBotMasterDirectoryEntry struct {
-	WorkspaceID     string `json:"workspaceId"`
-	WorkspaceName   string `json:"workspaceName"`
-	MasterPhone     string `json:"masterPhone"`
-	TelegramEnabled bool   `json:"telegramEnabled"`
-}
-
 type BotSession struct {
 	ID          string              `json:"id"`
 	WorkspaceID string              `json:"workspaceId"`

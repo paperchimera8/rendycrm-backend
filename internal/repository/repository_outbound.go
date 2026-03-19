@@ -267,57 +267,6 @@ func (r *Repository) WorkspaceByMasterPhone(ctx context.Context, normalizedPhone
 	return workspace, err
 }
 
-func (r *Repository) WorkspaceByID(ctx context.Context, workspaceID string) (Workspace, error) {
-	var workspace Workspace
-	err := r.db.QueryRowContext(ctx, `
-		SELECT id, name, timezone, COALESCE(master_phone_raw, ''), COALESCE(master_phone_normalized, '')
-		FROM workspaces
-		WHERE id = $1
-	`, workspaceID).Scan(&workspace.ID, &workspace.Name, &workspace.Timezone, &workspace.MasterPhoneRaw, &workspace.MasterPhoneNormalized)
-	return workspace, err
-}
-
-func (r *Repository) ClientBotMasterDirectory(ctx context.Context) ([]ClientBotMasterDirectoryEntry, error) {
-	rows, err := r.db.QueryContext(ctx, `
-		SELECT
-			w.id,
-			w.name,
-			COALESCE(w.master_phone_normalized, ''),
-			EXISTS (
-				SELECT 1
-				FROM channel_accounts ca
-				WHERE ca.workspace_id = w.id
-				  AND ca.channel_kind = 'telegram_client'
-				  AND COALESCE(ca.account_scope, 'workspace') IN ('workspace', 'global')
-				  AND ca.revoked_at IS NULL
-				  AND ca.connected = TRUE
-				  AND COALESCE(ca.is_enabled, TRUE) = TRUE
-			) AS telegram_enabled
-		FROM workspaces w
-		WHERE COALESCE(w.master_phone_normalized, '') <> ''
-		ORDER BY w.name ASC
-	`)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	items := make([]ClientBotMasterDirectoryEntry, 0)
-	for rows.Next() {
-		var item ClientBotMasterDirectoryEntry
-		if err := rows.Scan(
-			&item.WorkspaceID,
-			&item.WorkspaceName,
-			&item.MasterPhone,
-			&item.TelegramEnabled,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, item)
-	}
-	return items, rows.Err()
-}
-
 func (r *Repository) ClientBotRouteByChat(ctx context.Context, channelAccountID, externalChatID string) (ClientBotRoute, error) {
 	var route ClientBotRoute
 	err := r.db.QueryRowContext(ctx, `
