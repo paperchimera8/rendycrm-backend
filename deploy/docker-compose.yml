@@ -4,9 +4,9 @@ services:
       context: ..
       dockerfile: Dockerfile
     ports:
-      - "${API_PORT:-3000}:3000"
+      - "${API_PORT:-8080}:8080"
     environment:
-      PORT: "3000"
+      PORT: "8080"
       STATIC_DIR: "/web"
       BOT_RUNTIME_BASE_URL: "http://bot-ts:3100"
       BOT_RUNTIME_INTERNAL_TOKEN: ${BOT_RUNTIME_INTERNAL_TOKEN:-change-me-in-production}
@@ -25,7 +25,7 @@ services:
       REDIS_USERNAME: ${REDIS_USERNAME:-}
       REDIS_PASSWORD: ${REDIS_PASSWORD:-}
       REDIS_DB: ${REDIS_DB:-0}
-      PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-http://localhost:3000/api}
+      PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-http://localhost:8080/api}
       APP_ENCRYPTION_SECRET: ${APP_ENCRYPTION_SECRET:-change-me-in-production}
       ENABLE_DEMO_SEED: ${ENABLE_DEMO_SEED:-false}
       CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-}
@@ -36,6 +36,6 @@ services:
       dockerfile: apps/bot-ts/Dockerfile
     environment:
       PORT: "3100"
-      GO_API_BASE_URL: "http://api:3000"
+      GO_API_BASE_URL: "http://api:8080"
       BOT_RUNTIME_INTERNAL_TOKEN: ${BOT_RUNTIME_INTERNAL_TOKEN:-change-me-in-production}
     restart: unless-stopped
