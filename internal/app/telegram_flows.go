@@ -899,6 +899,16 @@ func (s *Server) handleTelegramOperatorUpdate(ctx context.Context, operatorAccou
 		return nil
 	}
 
+	isNew, err := s.runtime.repository.MarkTelegramUpdateProcessed(ctx, operatorAccount.WorkspaceID, operatorAccount.ID, ChannelKindTelegramOperator, update.UpdateID, chatID, messageID, callbackID)
+	if err != nil {
+		log.Printf("telegram inbound bot=operator stage=db_dedup outcome=error update_id=%d chat_id=%s error=%v", update.UpdateID, chatID, err)
+		return err
+	}
+	if !isNew {
+		log.Printf("telegram inbound bot=operator stage=db_dedup outcome=duplicate update_id=%d chat_id=%s message_id=%d callback_id=%q", update.UpdateID, chatID, messageID, callbackID)
+		return nil
+	}
+
 	if strings.HasPrefix(text, "/start ") {
 		code := strings.TrimSpace(strings.TrimPrefix(text, "/start "))
 		if _, err := s.runtime.services.OperatorLink.LinkTelegram(ctx, code, userID, chatID); err != nil {
@@ -941,15 +951,6 @@ func (s *Server) handleTelegramOperatorUpdate(ctx context.Context, operatorAccou
 		}
 	}
 
-	isNew, err := s.runtime.repository.MarkTelegramUpdateProcessed(ctx, binding.WorkspaceID, operatorAccount.ID, ChannelKindTelegramOperator, update.UpdateID, chatID, messageID, callbackID)
-	if err != nil {
-		log.Printf("telegram inbound bot=operator stage=db_dedup outcome=error update_id=%d chat_id=%s error=%v", update.UpdateID, chatID, err)
-		return err
-	}
-	if !isNew {
-		log.Printf("telegram inbound bot=operator stage=db_dedup outcome=duplicate update_id=%d chat_id=%s message_id=%d callback_id=%q", update.UpdateID, chatID, messageID, callbackID)
-		return nil
-	}
 	if text == "/start" || text == "Отмена" {
 		_ = s.runtime.services.BotSessions.ClearSession(ctx, domain.Actor{Kind: domain.ActorOperatorBot, WorkspaceID: binding.WorkspaceID, UserID: binding.UserID}, binding.WorkspaceID, string(BotSessionScopeOperator), string(BotSessionActorUser), binding.UserID)
 	}

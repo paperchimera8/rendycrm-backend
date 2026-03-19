@@ -29,6 +29,12 @@ type APIError struct {
 	Retriable   bool
 }
 
+const (
+	apiCallMaxAttempts    = 4
+	apiRetryInitialDelay  = 300 * time.Millisecond
+	apiResponseBodyMaxLen = 1 << 20
+)
+
 func (e *APIError) Error() string {
 	if e == nil {
 		return "telegram api error"
@@ -50,6 +56,12 @@ func IsRetriableError(err error) bool {
 		return false
 	}
 	if errors.Is(err, context.Canceled) {
+		return false
+	}
+	// The request reached the server — we cannot know if it was processed.
+	// Retrying would risk sending the same message twice.
+	var ste *sentToServerErr
+	if errors.As(err, &ste) {
 		return false
 	}
 	if errors.Is(err, context.DeadlineExceeded) {
@@ -130,62 +142,20 @@ func callAPI[T any](ctx context.Context, httpClient *http.Client, baseURL, token
 	endpoint := fmt.Sprintf("%s/bot%s/%s", baseURL, url.PathEscape(token), method)
 
 	var lastErr error
-	delay := 300 * time.Millisecond
-	for attempt := 0; attempt < 4; attempt++ {
-		req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(body))
-		if err != nil {
-			return zero, err
-		}
-		req.Header.Set("Content-Type", "application/json")
-
-		resp, err := httpClient.Do(req)
+	delay := apiRetryInitialDelay
+	for attempt := 0; attempt < apiCallMaxAttempts; attempt++ {
+		result, err := doAPICallAttempt[T](ctx, httpClient, endpoint, method, body)
 		if err != nil {
 			lastErr = err
 		} else {
-			rawBody, readErr := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
-			resp.Body.Close()
-			if readErr != nil {
-				return zero, readErr
-			}
-
-			if resp.StatusCode >= 200 && resp.StatusCode < 300 {
-				var parsed APIResponse[T]
-				if err := json.Unmarshal(rawBody, &parsed); err != nil {
-					return zero, err
-				}
-				if !parsed.OK {
-					apiErr := apiErrorFromResponse(method, resp.StatusCode, parseRetryAfterBody(rawBody), rawBody)
-					lastErr = apiErr
-					if apiErr.RetryAfter > 0 {
-						delay = apiErr.RetryAfter
-					}
-				} else {
-					return parsed.Result, nil
-				}
-			} else {
-				retryAfter := parseRetryAfter(resp, rawBody)
-				apiErr := apiErrorFromResponse(method, resp.StatusCode, retryAfter, rawBody)
-				log.Printf("telegram api error method=%s status=%d retry_after=%s description=%q", method, apiErr.StatusCode, apiErr.RetryAfter, apiErr.Description)
-				if apiErr.Retriable && attempt < 3 {
-					if apiErr.RetryAfter > 0 {
-						delay = apiErr.RetryAfter
-					}
-					select {
-					case <-ctx.Done():
-						return zero, ctx.Err()
-					case <-time.After(delay):
-					}
-					delay *= 2
-					continue
-				}
-				lastErr = apiErr
-			}
+			return result, nil
 		}
-		if attempt < 3 && shouldRetryError(lastErr) {
-			select {
-			case <-ctx.Done():
-				return zero, ctx.Err()
-			case <-time.After(delay):
+
+		var ste *sentToServerErr
+		if !errors.As(lastErr, &ste) && attempt < apiCallMaxAttempts-1 && shouldRetryError(lastErr) {
+			delay = retryDelayFromError(delay, lastErr)
+			if err := waitRetry(ctx, delay); err != nil {
+				return zero, err
 			}
 			delay *= 2
 			continue
@@ -196,6 +166,86 @@ func callAPI[T any](ctx context.Context, httpClient *http.Client, baseURL, token
 		lastErr = fmt.Errorf("telegram %s failed", method)
 	}
 	return zero, lastErr
+}
+
+// sentToServerErr wraps an error that occurred after the HTTP request was
+// received by the server (e.g. a body-read timeout). callAPI does not retry
+// these errors to avoid sending the same message more than once.
+type sentToServerErr struct{ cause error }
+
+func (e *sentToServerErr) Error() string { return e.cause.Error() }
+func (e *sentToServerErr) Unwrap() error { return e.cause }
+
+func doAPICallAttempt[T any](ctx context.Context, httpClient *http.Client, endpoint, method string, body []byte) (T, error) {
+	var zero T
+	req, err := newJSONRequest(ctx, endpoint, body)
+	if err != nil {
+		return zero, err
+	}
+
+	resp, err := httpClient.Do(req)
+	if err != nil {
+		return zero, err
+	}
+
+	rawBody, err := readResponseBody(resp)
+	if err != nil {
+		// The request reached the server — wrap the error so callAPI does not
+		// retry it. Retrying after a body-read failure risks sending duplicates
+		// because we cannot know whether Telegram already processed the request.
+		return zero, &sentToServerErr{cause: err}
+	}
+
+	return parseAPIResponse[T](method, resp, rawBody)
+}
+
+func newJSONRequest(ctx context.Context, endpoint string, body []byte) (*http.Request, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(body))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	return req, nil
+}
+
+func readResponseBody(resp *http.Response) ([]byte, error) {
+	defer resp.Body.Close()
+	return io.ReadAll(io.LimitReader(resp.Body, apiResponseBodyMaxLen))
+}
+
+func parseAPIResponse[T any](method string, resp *http.Response, rawBody []byte) (T, error) {
+	var zero T
+	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
+		var parsed APIResponse[T]
+		if err := json.Unmarshal(rawBody, &parsed); err != nil {
+			return zero, err
+		}
+		if parsed.OK {
+			return parsed.Result, nil
+		}
+		return zero, apiErrorFromResponse(method, resp.StatusCode, parseRetryAfterBody(rawBody), rawBody)
+	}
+
+	apiErr := apiErrorFromResponse(method, resp.StatusCode, parseRetryAfter(resp, rawBody), rawBody)
+	log.Printf("telegram api error method=%s status=%d retry_after=%s description=%q", method, apiErr.StatusCode, apiErr.RetryAfter, apiErr.Description)
+	return zero, apiErr
+}
+
+func retryDelayFromError(current time.Duration, err error) time.Duration {
+	var apiErr *APIError
+	if errors.As(err, &apiErr) && apiErr.RetryAfter > 0 {
+		return apiErr.RetryAfter
+	}
+	return current
+}
+
+func waitRetry(ctx context.Context, delay time.Duration) error {
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-time.After(delay):
+		return nil
+	}
 }
 
 func shouldRetryStatus(status int) bool {

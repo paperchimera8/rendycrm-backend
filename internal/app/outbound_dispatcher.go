@@ -13,7 +13,10 @@ import (
 	tgapi "github.com/vital/rendycrm-app/internal/telegram"
 )
 
-const outboundDispatchCooldown = 30 * time.Second
+// outboundDispatchCooldown must exceed outboundProcessingLease (2 min) so that
+// the Redis guard is still held when the DB lease expires, preventing a second
+// dispatcher from claiming and re-sending an in-flight outbound message.
+const outboundDispatchCooldown = 3 * time.Minute
 
 func (s *Server) processOutboundMessages(ctx context.Context) {
 	for {
