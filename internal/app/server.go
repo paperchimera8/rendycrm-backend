@@ -111,6 +111,10 @@ func (s *Server) routes() {
 	s.apiMux.HandleFunc("/settings/operator-bot", s.requireAuth(s.handleOperatorBotSettings))
 	s.apiMux.HandleFunc("/settings/operator-bot/", s.requireAuth(s.handleOperatorBotSettings))
 	s.apiMux.HandleFunc("/events", s.requireAuth(s.handleEvents))
+	s.apiMux.HandleFunc("/internal/bot-runtime/client/prepare", s.handleBotRuntimeClientPrepare)
+	s.apiMux.HandleFunc("/internal/bot-runtime/client/apply", s.handleBotRuntimeClientApply)
+	s.apiMux.HandleFunc("/internal/bot-runtime/operator/prepare", s.handleBotRuntimeOperatorPrepare)
+	s.apiMux.HandleFunc("/internal/bot-runtime/operator/apply", s.handleBotRuntimeOperatorApply)
 	s.apiMux.HandleFunc("/webhooks/", s.handleWebhook)
 	s.mux.HandleFunc("/", s.handleApp)
 }
@@ -1032,6 +1036,12 @@ func (s *Server) handleChannelByProvider(w http.ResponseWriter, r *http.Request,
 		s.writeError(w, http.StatusNotFound, err.Error())
 		return
 	}
+	if provider == ChannelTelegram {
+		if err := s.syncTelegramWebhook(r.Context(), account); err != nil {
+			s.writeError(w, http.StatusBadGateway, err.Error())
+			return
+		}
+	}
 	s.writeJSON(w, http.StatusOK, account)
 }
 
@@ -1133,6 +1143,10 @@ func (s *Server) handleWebhook(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	switch {
+	case len(parts) == 4 && parts[0] == "telegram" && parts[1] == "client":
+		s.proxyBotRuntimeWebhook(w, r)
+	case len(parts) == 2 && parts[0] == "telegram" && parts[1] == "operator":
+		s.proxyBotRuntimeWebhook(w, r)
 	case len(parts) == 4 && parts[0] == "whatsapp" && parts[1] == "twilio":
 		s.handleWhatsAppWebhook(w, r, parts[2], parts[3])
 	default:

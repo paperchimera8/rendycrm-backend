@@ -65,6 +65,7 @@ export interface SettingsAutoReplyChangedEffect {
 
 export interface OperatorBoundEffect {
   readonly type: "operator.bound";
+  readonly code: string;
   readonly workspaceId: string;
   readonly userId: string;
   readonly chatId: string;

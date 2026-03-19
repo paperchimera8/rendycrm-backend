@@ -107,6 +107,10 @@ func (s *Server) handleOperatorBotSettings(w http.ResponseWriter, r *http.Reques
 			s.writeError(w, http.StatusInternalServerError, "operator bot settings query failed")
 			return
 		}
+		if err := s.syncTelegramWebhook(r.Context(), account); err != nil {
+			s.writeError(w, http.StatusBadGateway, err.Error())
+			return
+		}
 		settings, err := s.runtime.repository.OperatorBotSettings(r.Context(), auth.Workspace.ID, auth.User.ID, account.BotUsername, s.cfg.PublicBaseURL)
 		if err != nil {
 			s.writeError(w, http.StatusInternalServerError, "operator bot settings query failed")

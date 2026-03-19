@@ -678,6 +678,23 @@ func (r *Repository) OperatorBotSettings(ctx context.Context, workspaceID, userI
 	return settings, nil
 }
 
+func (r *Repository) OperatorLinkCodeByCode(ctx context.Context, code string) (OperatorBotLinkCode, error) {
+	var item OperatorBotLinkCode
+	err := r.db.QueryRowContext(ctx, `
+		SELECT id, user_id, workspace_id, code, expires_at
+		FROM operator_bot_link_codes
+		WHERE code = $1
+		  AND consumed_at IS NULL
+		  AND expires_at > NOW()
+		ORDER BY created_at DESC
+		LIMIT 1
+	`, code).Scan(&item.ID, &item.UserID, &item.WorkspaceID, &item.Code, &item.ExpiresAt)
+	if err != nil {
+		return OperatorBotLinkCode{}, err
+	}
+	return item, nil
+}
+
 func (r *Repository) LinkOperatorTelegram(ctx context.Context, code, telegramUserID, telegramChatID string) (OperatorBotBinding, error) {
 	tx, err := r.db.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelSerializable})
 	if err != nil {

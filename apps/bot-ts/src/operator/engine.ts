@@ -249,6 +249,7 @@ function bindOperator(
     effects: [
       {
         type: "operator.bound",
+        code: binding.code,
         workspaceId: binding.workspaceId,
         userId: binding.userId,
         chatId: binding.chatId,
