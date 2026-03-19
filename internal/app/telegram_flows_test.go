@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"testing"
+	"time"
 
 	tgapi "github.com/vital/rendycrm-app/internal/telegram"
 )
@@ -108,5 +109,88 @@ func TestHandleTelegramOperatorUpdateIgnoresCallbackWithoutMessage(t *testing.T)
 
 	if err := server.handleTelegramOperatorUpdate(context.Background(), ChannelAccount{}, update); err != nil {
 		t.Fatalf("expected operator callback without message to be ignored safely, got %v", err)
+	}
+}
+
+func TestIsTelegramMasterPhonePromptRequest(t *testing.T) {
+	tests := []struct {
+		name string
+		text string
+		want bool
+	}{
+		{name: "button label infinitive", text: "Ввести номер мастера", want: true},
+		{name: "button label imperative", text: "Введите номер мастера", want: true},
+		{name: "full prompt text", text: "Введите номер мастера, к которому хотите записаться.", want: true},
+		{name: "plain phone", text: "+7 999 111-22-33", want: false},
+		{name: "arbitrary text", text: "привет", want: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := isTelegramMasterPhonePromptRequest(tt.text); got != tt.want {
+				t.Fatalf("unexpected prompt request detection for %q: got %t want %t", tt.text, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestShouldClearClientRoute(t *testing.T) {
+	now := time.Date(2026, time.March, 19, 10, 0, 0, 0, time.UTC)
+
+	tests := []struct {
+		name  string
+		route ClientBotRoute
+		want  bool
+	}{
+		{
+			name: "awaiting master phone is preserved",
+			route: ClientBotRoute{
+				ChannelAccountID: "cha_1",
+				ExternalChatID:   "chat_1",
+				State:            "awaiting_master_phone",
+				ExpiresAt:        now.Add(time.Hour),
+			},
+			want: false,
+		},
+		{
+			name: "expired route is cleared",
+			route: ClientBotRoute{
+				ChannelAccountID:    "cha_1",
+				ExternalChatID:      "chat_1",
+				State:               "ready",
+				SelectedWorkspaceID: "ws_1",
+				ExpiresAt:           now.Add(-time.Minute),
+			},
+			want: true,
+		},
+		{
+			name: "ready route without workspace is cleared",
+			route: ClientBotRoute{
+				ChannelAccountID: "cha_1",
+				ExternalChatID:   "chat_1",
+				State:            "ready",
+				ExpiresAt:        now.Add(time.Hour),
+			},
+			want: true,
+		},
+		{
+			name: "ready route with workspace is kept",
+			route: ClientBotRoute{
+				ChannelAccountID:    "cha_1",
+				ExternalChatID:      "chat_1",
+				State:               "ready",
+				SelectedWorkspaceID: "ws_1",
+				ExpiresAt:           now.Add(time.Hour),
+			},
+			want: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := shouldClearClientRoute(tt.route, now); got != tt.want {
+				t.Fatalf("unexpected clear decision: got %t want %t", got, tt.want)
+			}
+		})
 	}
 }

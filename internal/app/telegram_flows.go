@@ -224,6 +224,19 @@ func telegramClientMasterPhonePromptText() string {
 
 const telegramClientRoutePromptCooldown = 2 * time.Minute
 
+func isTelegramMasterPhonePromptRequest(text string) bool {
+	text = strings.ToLower(strings.TrimSpace(text))
+	switch text {
+	case "ввести номер мастера",
+		"введите номер мастера",
+		"номер мастера",
+		strings.ToLower(telegramClientMasterPhonePromptText()):
+		return true
+	default:
+		return false
+	}
+}
+
 func shouldSkipTelegramRoutePrompt(route ClientBotRoute, state, workspaceID, normalizedPhone string, now time.Time) bool {
 	if route.ChannelAccountID == "" || route.State != state {
 		return false
@@ -237,6 +250,19 @@ func shouldSkipTelegramRoutePrompt(route ClientBotRoute, state, workspaceID, nor
 		}
 	}
 	return route.UpdatedAt.Add(telegramClientRoutePromptCooldown).After(now)
+}
+
+func shouldClearClientRoute(route ClientBotRoute, now time.Time) bool {
+	if route.ChannelAccountID == "" {
+		return false
+	}
+	if !route.ExpiresAt.IsZero() && route.ExpiresAt.Before(now) {
+		return true
+	}
+	if route.State == "awaiting_master_phone" {
+		return false
+	}
+	return route.State != "ready" || route.SelectedWorkspaceID == ""
 }
 
 func (s *Server) promptTelegramMasterPhone(ctx context.Context, account ChannelAccount, chatID string, welcome bool) error {
@@ -278,7 +304,11 @@ func (s *Server) selectedClientRoute(ctx context.Context, account ChannelAccount
 	if err != nil {
 		return ClientBotRoute{}, err
 	}
-	if route.State != "ready" || route.SelectedWorkspaceID == "" || (!route.ExpiresAt.IsZero() && route.ExpiresAt.Before(time.Now().UTC())) {
+	now := time.Now().UTC()
+	if route.State == "awaiting_master_phone" {
+		return ClientBotRoute{}, errors.New("client bot route is awaiting master phone")
+	}
+	if shouldClearClientRoute(route, now) {
 		_ = s.runtime.services.BotSessions.ClearClientRoute(ctx, domain.SystemActor(), account.ID, chatID)
 		return ClientBotRoute{}, errors.New("client bot route is not ready")
 	}
@@ -492,8 +522,7 @@ func (s *Server) handleTelegramClientUpdate(ctx context.Context, account Channel
 	}
 
 	if account.AccountScope == ChannelAccountScopeGlobal {
-		if strings.EqualFold(text, "сменить мастера") {
-			_ = s.runtime.services.BotSessions.ClearClientRoute(ctx, domain.SystemActor(), account.ID, chatID)
+		if strings.EqualFold(text, "сменить мастера") || isTelegramMasterPhonePromptRequest(text) {
 			return s.promptTelegramMasterPhone(ctx, account, chatID, false)
 		}
 		route, err := s.selectedClientRoute(ctx, account, chatID)
@@ -600,7 +629,6 @@ func (s *Server) handleTelegramClientCallback(ctx context.Context, account Chann
 	if account.AccountScope == ChannelAccountScopeGlobal {
 		switch data {
 		case "client:change_master", "client:enter_master_phone":
-			_ = s.runtime.services.BotSessions.ClearClientRoute(ctx, domain.SystemActor(), account.ID, chatID)
 			return s.promptTelegramMasterPhone(ctx, account, chatID, false)
 		}
 		route, err := s.selectedClientRoute(ctx, account, chatID)
