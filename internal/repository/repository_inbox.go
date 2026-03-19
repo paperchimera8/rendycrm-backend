@@ -317,7 +317,7 @@ func (r *Repository) SendBotReply(ctx context.Context, workspaceID, conversation
 				})
 			}
 		}
-		if _, err := r.enqueueOutboundMessageTx(ctx, tx, OutboundMessage{
+		if _, _, err := r.enqueueOutboundMessageTx(ctx, tx, OutboundMessage{
 			WorkspaceID:      workspaceID,
 			Channel:          account.Provider,
 			ChannelKind:      account.ChannelKind,

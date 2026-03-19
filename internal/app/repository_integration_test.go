@@ -565,7 +565,7 @@ func TestClaimNextOutboundMessageSkipsFreshProcessingRows(t *testing.T) {
 
 	seedInboxChannelAccount(t, db, workspaceID, "cha_tg", ChannelTelegram, "telegram-secret")
 
-	item, err := repo.EnqueueOutboundMessage(context.Background(), OutboundMessage{
+	item, inserted, err := repo.EnqueueOutboundMessage(context.Background(), OutboundMessage{
 		WorkspaceID:      workspaceID,
 		Channel:          ChannelTelegram,
 		ChannelKind:      ChannelKindTelegramClient,
@@ -577,6 +577,9 @@ func TestClaimNextOutboundMessageSkipsFreshProcessingRows(t *testing.T) {
 	})
 	if err != nil {
 		t.Fatalf("enqueue outbound: %v", err)
+	}
+	if !inserted {
+		t.Fatal("expected outbound message to be inserted")
 	}
 
 	claimed, err := repo.ClaimNextOutboundMessage(context.Background())
@@ -606,6 +609,64 @@ func TestClaimNextOutboundMessageSkipsFreshProcessingRows(t *testing.T) {
 	}
 	if reclaimed.ID != item.ID {
 		t.Fatalf("expected reclaimed id %s, got %s", item.ID, reclaimed.ID)
+	}
+}
+
+func TestEnqueueOutboundMessageSkipsDuplicateDedupKey(t *testing.T) {
+	repo, db, workspaceID, _, cleanup := newIntegrationRepository(t, "Europe/Moscow")
+	defer cleanup()
+
+	seedInboxChannelAccount(t, db, workspaceID, "cha_tg", ChannelTelegram, "telegram-secret")
+
+	first, inserted, err := repo.EnqueueOutboundMessage(context.Background(), OutboundMessage{
+		WorkspaceID:      workspaceID,
+		Channel:          ChannelTelegram,
+		ChannelKind:      ChannelKindTelegramClient,
+		ChannelAccountID: "cha_tg",
+		DedupKey:         "tg:out:test:msg:178:master-selected",
+		Kind:             OutboundKindTelegramSendInline,
+	}, TelegramOutboundPayload{
+		ChatID: "1348661149",
+		Text:   "Мастер выбран: Smoke Workspace.",
+	})
+	if err != nil {
+		t.Fatalf("enqueue first outbound: %v", err)
+	}
+	if !inserted {
+		t.Fatal("expected first outbound to be inserted")
+	}
+
+	second, inserted, err := repo.EnqueueOutboundMessage(context.Background(), OutboundMessage{
+		WorkspaceID:      workspaceID,
+		Channel:          ChannelTelegram,
+		ChannelKind:      ChannelKindTelegramClient,
+		ChannelAccountID: "cha_tg",
+		DedupKey:         "tg:out:test:msg:178:master-selected",
+		Kind:             OutboundKindTelegramSendInline,
+	}, TelegramOutboundPayload{
+		ChatID: "1348661149",
+		Text:   "Мастер выбран: Smoke Workspace.",
+	})
+	if err != nil {
+		t.Fatalf("enqueue duplicate outbound: %v", err)
+	}
+	if inserted {
+		t.Fatal("expected duplicate outbound to be skipped")
+	}
+	if second.ID == "" {
+		t.Fatal("expected duplicate enqueue to still return a generated outbound id")
+	}
+
+	var queuedCount int
+	if err := db.QueryRowContext(context.Background(), `
+		SELECT COUNT(*)
+		FROM outbound_messages
+		WHERE dedup_key = $1
+	`, first.DedupKey).Scan(&queuedCount); err != nil {
+		t.Fatalf("count deduplicated outbound messages: %v", err)
+	}
+	if queuedCount != 1 {
+		t.Fatalf("expected 1 queued outbound after deduplication, got %d", queuedCount)
 	}
 }
 

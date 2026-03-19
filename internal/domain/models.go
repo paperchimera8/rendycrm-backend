@@ -437,6 +437,7 @@ type OutboundMessage struct {
 	ChannelAccountID  string          `json:"channelAccountId"`
 	ConversationID    string          `json:"conversationId"`
 	MessageID         string          `json:"messageId"`
+	DedupKey          string          `json:"dedupKey"`
 	Kind              OutboundKind    `json:"kind"`
 	Payload           string          `json:"payload"`
 	Status            OutboundStatus  `json:"status"`

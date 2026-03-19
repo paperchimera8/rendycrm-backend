@@ -289,7 +289,7 @@ func (r *Repository) Reply(ctx context.Context, workspaceID, conversationID, use
 		Text:   text,
 	}
 	if account.Provider == ChannelTelegram {
-		if _, err := r.enqueueOutboundMessageTx(ctx, tx, OutboundMessage{
+		if _, _, err := r.enqueueOutboundMessageTx(ctx, tx, OutboundMessage{
 			WorkspaceID:      workspaceID,
 			Channel:          account.Provider,
 			ChannelKind:      account.ChannelKind,

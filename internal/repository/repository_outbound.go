@@ -441,10 +441,10 @@ func (r *Repository) MarkTelegramUpdateProcessed(ctx context.Context, workspaceI
 	return affected > 0, nil
 }
 
-func (r *Repository) enqueueOutboundMessageTx(ctx context.Context, tx *sql.Tx, outbound OutboundMessage, payload any) (OutboundMessage, error) {
+func (r *Repository) enqueueOutboundMessageTx(ctx context.Context, tx *sql.Tx, outbound OutboundMessage, payload any) (OutboundMessage, bool, error) {
 	raw, err := json.Marshal(payload)
 	if err != nil {
-		return OutboundMessage{}, err
+		return OutboundMessage{}, false, err
 	}
 	now := time.Now().UTC()
 	if outbound.ID == "" {
@@ -455,33 +455,39 @@ func (r *Repository) enqueueOutboundMessageTx(ctx context.Context, tx *sql.Tx, o
 	outbound.NextAttemptAt = now
 	outbound.CreatedAt = now
 	outbound.UpdatedAt = now
-	if _, err := tx.ExecContext(ctx, `
+	result, err := tx.ExecContext(ctx, `
 		INSERT INTO outbound_messages (
 			id, workspace_id, channel, channel_kind, channel_account_id, conversation_id,
-			message_id, kind, payload_json, status, retry_count, last_error, next_attempt_at,
+			message_id, dedup_key, kind, payload_json, status, retry_count, last_error, next_attempt_at,
 			provider_message_id, created_at, updated_at
 		)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb, $10, $11, $12, $13, $14, $15, $16)
-	`, outbound.ID, outbound.WorkspaceID, outbound.Channel, outbound.ChannelKind, outbound.ChannelAccountID, outbound.ConversationID, outbound.MessageID, outbound.Kind, outbound.Payload, outbound.Status, outbound.RetryCount, outbound.LastError, outbound.NextAttemptAt, outbound.ProviderMessageID, outbound.CreatedAt, outbound.UpdatedAt); err != nil {
-		return OutboundMessage{}, err
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::jsonb, $11, $12, $13, $14, $15, $16, $17)
+		ON CONFLICT (dedup_key) WHERE dedup_key <> '' DO NOTHING
+	`, outbound.ID, outbound.WorkspaceID, outbound.Channel, outbound.ChannelKind, outbound.ChannelAccountID, outbound.ConversationID, outbound.MessageID, outbound.DedupKey, outbound.Kind, outbound.Payload, outbound.Status, outbound.RetryCount, outbound.LastError, outbound.NextAttemptAt, outbound.ProviderMessageID, outbound.CreatedAt, outbound.UpdatedAt)
+	if err != nil {
+		return OutboundMessage{}, false, err
 	}
-	return outbound, nil
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return OutboundMessage{}, false, err
+	}
+	return outbound, affected > 0, nil
 }
 
-func (r *Repository) EnqueueOutboundMessage(ctx context.Context, outbound OutboundMessage, payload any) (OutboundMessage, error) {
+func (r *Repository) EnqueueOutboundMessage(ctx context.Context, outbound OutboundMessage, payload any) (OutboundMessage, bool, error) {
 	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {
-		return OutboundMessage{}, err
+		return OutboundMessage{}, false, err
 	}
 	defer tx.Rollback()
-	item, err := r.enqueueOutboundMessageTx(ctx, tx, outbound, payload)
+	item, inserted, err := r.enqueueOutboundMessageTx(ctx, tx, outbound, payload)
 	if err != nil {
-		return OutboundMessage{}, err
+		return OutboundMessage{}, false, err
 	}
 	if err := tx.Commit(); err != nil {
-		return OutboundMessage{}, err
+		return OutboundMessage{}, false, err
 	}
-	return item, nil
+	return item, inserted, nil
 }
 
 func (r *Repository) ClaimNextOutboundMessage(ctx context.Context) (OutboundMessage, error) {
@@ -512,6 +518,7 @@ func (r *Repository) ClaimNextOutboundMessage(ctx context.Context) (OutboundMess
 			om.channel_account_id,
 			om.conversation_id,
 			om.message_id,
+			om.dedup_key,
 			om.kind,
 			om.payload_json::text,
 			om.status,
@@ -529,6 +536,7 @@ func (r *Repository) ClaimNextOutboundMessage(ctx context.Context) (OutboundMess
 		&item.ChannelAccountID,
 		&item.ConversationID,
 		&item.MessageID,
+		&item.DedupKey,
 		&item.Kind,
 		&item.Payload,
 		&item.Status,

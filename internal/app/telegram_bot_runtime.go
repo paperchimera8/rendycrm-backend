@@ -916,7 +916,7 @@ func (s *Server) applyBotEngineClientTransition(ctx context.Context, account Cha
 func (s *Server) applyBotEngineClientEffect(ctx context.Context, account ChannelAccount, inbound telegramClientInbound, state botEngineClientSession, effect botEngineEffect) error {
 	switch effect.Type {
 	case "reply":
-		return s.enqueueBotEngineReply(ctx, account, inbound.chatID, effect)
+		return s.enqueueBotEngineReply(ctx, account, inbound.chatID, effect, inbound.messageID, inbound.callbackID)
 	case "configuration.error":
 		log.Printf("telegram bot runtime configuration error bot=%s account_id=%s message=%q", effect.Bot, account.ID, effect.Message)
 		return nil
@@ -942,7 +942,7 @@ func (s *Server) applyBotEngineClientEffect(ctx context.Context, account Channel
 func (s *Server) applyBotEngineClientCRMEffect(ctx context.Context, account ChannelAccount, inbound telegramClientInbound, effect botEngineEffect) error {
 	targetWorkspaceID := strings.TrimSpace(effect.WorkspaceID)
 	if account.AccountScope == ChannelAccountScopeGlobal && targetWorkspaceID == "" {
-		return s.enqueueTelegramMasterPhonePrompt(ctx, account, inbound.chatID, false)
+		return s.enqueueTelegramMasterPhonePrompt(ctx, account, inbound.chatID, false, inbound.messageID, inbound.callbackID)
 	}
 	if targetWorkspaceID == "" {
 		targetWorkspaceID = account.WorkspaceID
@@ -987,7 +987,7 @@ func (s *Server) applyBotEngineClientBookingPending(ctx context.Context, account
 				Buttons: []TelegramInlineButton{
 					{Text: "Свободные окна", CallbackData: "client:slots"},
 				},
-			})
+			}, inbound.messageID, inbound.callbackID)
 		}
 		return err
 	}
@@ -1060,7 +1060,7 @@ func (s *Server) applyBotEngineClientBookingConfirmed(ctx context.Context, accou
 				Buttons: []TelegramInlineButton{
 					{Text: "Свободные окна", CallbackData: "client:slots"},
 				},
-			})
+			}, inbound.messageID, inbound.callbackID)
 		}
 		return err
 	}
@@ -1188,7 +1188,7 @@ func (s *Server) ensureTelegramClientConversation(ctx context.Context, account C
 	return s.runtime.repository.ConversationByExternalChat(ctx, workspaceID, ChannelTelegram, inbound.chatID)
 }
 
-func (s *Server) enqueueBotEngineReply(ctx context.Context, account ChannelAccount, chatID string, effect botEngineEffect) error {
+func (s *Server) enqueueBotEngineReply(ctx context.Context, account ChannelAccount, chatID string, effect botEngineEffect, inboundMessageID int64, callbackID string) error {
 	kind := OutboundKindTelegramSendText
 	payload := TelegramOutboundPayload{
 		ChatID: chatID,
@@ -1207,7 +1207,7 @@ func (s *Server) enqueueBotEngineReply(ctx context.Context, account ChannelAccou
 			})
 		}
 	}
-	return s.enqueueTelegramOutbound(ctx, account, kind, "", "", payload)
+	return s.enqueueTelegramOutbound(ctx, account, kind, "", "", payload, inboundMessageID, callbackID)
 }
 
 func (s *Server) buildBotEngineOperatorContext(ctx context.Context, binding OperatorBotBinding, linkBindings []botEngineOperatorLinkBinding) (botEngineOperatorContext, *botEngineOperatorWorkspace, error) {
@@ -1456,7 +1456,7 @@ func (s *Server) applyBotEngineOperatorTransition(ctx context.Context, account C
 func (s *Server) applyBotEngineOperatorEffect(ctx context.Context, account ChannelAccount, snapshot botRuntimeOperatorSnap, binding *OperatorBotBinding, effect botEngineEffect) error {
 	switch effect.Type {
 	case "reply":
-		return s.enqueueBotEngineReply(ctx, account, snapshot.ChatID, effect)
+		return s.enqueueBotEngineReply(ctx, account, snapshot.ChatID, effect, snapshot.MessageID, snapshot.CallbackID)
 	case "configuration.error":
 		log.Printf("telegram bot runtime configuration error bot=%s workspace_id=%s message=%q", effect.Bot, effect.WorkspaceID, effect.Message)
 		return nil
@@ -1611,9 +1611,37 @@ func (s *Server) telegramWebhookURL(account ChannelAccount) (string, error) {
 	}
 }
 
-func (s *Server) enqueueTelegramOutbound(ctx context.Context, account ChannelAccount, kind OutboundKind, conversationID, messageID string, payload TelegramOutboundPayload) error {
+func (s *Server) enqueueTelegramOutbound(ctx context.Context, account ChannelAccount, kind OutboundKind, conversationID, messageID string, payload TelegramOutboundPayload, inboundMessageID int64, callbackID string) error {
 	if account.ID == "" {
 		return errors.New("telegram channel account is empty")
+	}
+	dedupKey := telegramOutboundDedupKey(account, payload.ChatID, inboundMessageID, callbackID, kind, conversationID, messageID, payload)
+	_, inserted, err := s.runtime.repository.EnqueueOutboundMessage(ctx, OutboundMessage{
+		WorkspaceID:      account.WorkspaceID,
+		Channel:          account.Provider,
+		ChannelKind:      account.ChannelKind,
+		ChannelAccountID: account.ID,
+		ConversationID:   conversationID,
+		MessageID:        messageID,
+		DedupKey:         dedupKey,
+		Kind:             kind,
+	}, payload)
+	if err != nil {
+		return err
+	}
+	if !inserted {
+		log.Printf(
+			"telegram outbound skipped duplicate bot=%s kind=%s account_id=%s conversation_id=%s message_id=%s chat_id=%s buttons=%d text=%q",
+			account.ChannelKind,
+			kind,
+			account.ID,
+			conversationID,
+			messageID,
+			payload.ChatID,
+			len(payload.Buttons),
+			telegramLogValue(payload.Text),
+		)
+		return nil
 	}
 	log.Printf(
 		"telegram outbound bot=%s kind=%s account_id=%s conversation_id=%s message_id=%s chat_id=%s buttons=%d text=%q",
@@ -1626,25 +1654,14 @@ func (s *Server) enqueueTelegramOutbound(ctx context.Context, account ChannelAcc
 		len(payload.Buttons),
 		telegramLogValue(payload.Text),
 	)
-	_, err := s.runtime.repository.EnqueueOutboundMessage(ctx, OutboundMessage{
-		WorkspaceID:      account.WorkspaceID,
-		Channel:          account.Provider,
-		ChannelKind:      account.ChannelKind,
-		ChannelAccountID: account.ID,
-		ConversationID:   conversationID,
-		MessageID:        messageID,
-		Kind:             kind,
-	}, payload)
-	if err == nil {
-		select {
-		case s.outboundWake <- struct{}{}:
-		default:
-		}
+	select {
+	case s.outboundWake <- struct{}{}:
+	default:
 	}
-	return err
+	return nil
 }
 
-func (s *Server) enqueueTelegramMasterPhonePrompt(ctx context.Context, account ChannelAccount, chatID string, welcome bool) error {
+func (s *Server) enqueueTelegramMasterPhonePrompt(ctx context.Context, account ChannelAccount, chatID string, welcome bool, inboundMessageID int64, callbackID string) error {
 	if s.runtime == nil || s.runtime.redis == nil {
 		return s.enqueueTelegramOutbound(ctx, account, OutboundKindTelegramSendInline, "", "", TelegramOutboundPayload{
 			ChatID: chatID,
@@ -1652,7 +1669,7 @@ func (s *Server) enqueueTelegramMasterPhonePrompt(ctx context.Context, account C
 			Buttons: []TelegramInlineButton{
 				{Text: "Ввести номер мастера", CallbackData: "client:enter_master_phone"},
 			},
-		})
+		}, inboundMessageID, callbackID)
 	}
 	text := telegramClientPromptText(welcome)
 	freshPrompt, err := s.runtime.redis.SetNX(ctx, telegramClientPromptKey(account.ID, chatID, text), "1", telegramPromptCooldown).Result()
@@ -1668,7 +1685,7 @@ func (s *Server) enqueueTelegramMasterPhonePrompt(ctx context.Context, account C
 		Buttons: []TelegramInlineButton{
 			{Text: "Ввести номер мастера", CallbackData: "client:enter_master_phone"},
 		},
-	})
+	}, inboundMessageID, callbackID)
 }
 
 func (s *Server) answerTelegramCallback(ctx context.Context, account ChannelAccount, callbackID, text string) {
@@ -1707,7 +1724,7 @@ func (s *Server) notifyOperatorsAboutConversation(ctx context.Context, conversat
 				{Text: "Ответить", CallbackData: "dlg:reply:" + conversation.ID},
 				{Text: "Слоты", CallbackData: "slot:list:" + conversation.ID},
 			},
-		})
+		}, 0, "")
 	}
 }
 
@@ -1745,6 +1762,60 @@ func telegramInboundDeliveryKey(accountID string, botKind ChannelKind, chatID st
 		return fmt.Sprintf("tg:upd:%s:%s:%s:cbq:%s", strings.TrimSpace(accountID), strings.TrimSpace(string(botKind)), strings.TrimSpace(chatID), hex.EncodeToString(hash[:8]))
 	}
 	return fmt.Sprintf("tg:upd:%s:%s:%s:msg:%d", strings.TrimSpace(accountID), strings.TrimSpace(string(botKind)), strings.TrimSpace(chatID), messageID)
+}
+
+func telegramOutboundDedupKey(account ChannelAccount, chatID string, inboundMessageID int64, callbackID string, kind OutboundKind, conversationID, messageID string, payload TelegramOutboundPayload) string {
+	if strings.TrimSpace(account.ID) == "" || strings.TrimSpace(chatID) == "" {
+		return ""
+	}
+	identity := telegramOutboundDedupIdentity(inboundMessageID, callbackID)
+	if identity == "" {
+		return ""
+	}
+	signaturePayload, err := json.Marshal(struct {
+		Kind           OutboundKind           `json:"kind"`
+		ConversationID string                 `json:"conversationId,omitempty"`
+		MessageID      string                 `json:"messageId,omitempty"`
+		Text           string                 `json:"text,omitempty"`
+		TargetMessage  int64                  `json:"targetMessage,omitempty"`
+		Buttons        []TelegramInlineButton `json:"buttons,omitempty"`
+		ParseMode      string                 `json:"parseMode,omitempty"`
+		CallbackText   string                 `json:"callbackText,omitempty"`
+		ShowAlert      bool                   `json:"showAlert,omitempty"`
+	}{
+		Kind:           kind,
+		ConversationID: strings.TrimSpace(conversationID),
+		MessageID:      strings.TrimSpace(messageID),
+		Text:           strings.TrimSpace(payload.Text),
+		TargetMessage:  payload.MessageID,
+		Buttons:        payload.Buttons,
+		ParseMode:      strings.TrimSpace(payload.ParseMode),
+		CallbackText:   strings.TrimSpace(payload.CallbackText),
+		ShowAlert:      payload.ShowAlert,
+	})
+	if err != nil {
+		return ""
+	}
+	hash := sha256.Sum256(signaturePayload)
+	return fmt.Sprintf(
+		"tg:out:%s:%s:%s:%s:%s",
+		strings.TrimSpace(account.ID),
+		strings.TrimSpace(string(account.ChannelKind)),
+		strings.TrimSpace(chatID),
+		identity,
+		hex.EncodeToString(hash[:8]),
+	)
+}
+
+func telegramOutboundDedupIdentity(messageID int64, callbackID string) string {
+	if trimmed := strings.TrimSpace(callbackID); trimmed != "" {
+		hash := sha256.Sum256([]byte(trimmed))
+		return "cbq:" + hex.EncodeToString(hash[:8])
+	}
+	if messageID == 0 {
+		return ""
+	}
+	return "msg:" + strconv.FormatInt(messageID, 10)
 }
 
 func telegramClientPromptKey(accountID, chatID, text string) string {
