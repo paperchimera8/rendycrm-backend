@@ -176,6 +176,10 @@ function handleClientStart(
     return selectMasterByPhone(session, payload, now, context);
   }
 
+   if (session.route.kind === "ready") {
+    return resumeSelectedMaster(session, context);
+  }
+
   return promptForMasterPhone(session, now, true, context);
 }
 
@@ -405,6 +409,28 @@ function selectMasterByPhone(
       },
       reply(
         `Мастер выбран: ${master.workspaceName}.\nТеперь можно написать сообщение, посмотреть слоты или записаться.`,
+        buildClientMenuButtons(context.mode),
+      ),
+    ],
+  };
+}
+
+function resumeSelectedMaster(
+  session: ClientSession,
+  context: ClientContext,
+): Transition<ClientSession> {
+  if (session.route.kind !== "ready") {
+    return { state: session, effects: [] };
+  }
+
+  return {
+    state: {
+      ...session,
+      booking: { kind: "idle" },
+    },
+    effects: [
+      reply(
+        `Мастер выбран: ${session.route.workspaceName}.\nТеперь можно написать сообщение, посмотреть слоты или записаться.`,
         buildClientMenuButtons(context.mode),
       ),
     ],

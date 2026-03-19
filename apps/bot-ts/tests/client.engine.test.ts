@@ -57,6 +57,35 @@ describe("client engine", () => {
     );
   });
 
+  it("keeps selected master on repeated start in global mode", async () => {
+    const result = await handleClientEvent(
+      {
+        ...createClientSession(),
+        route: {
+          kind: "ready",
+          workspaceId: "ws_smoke",
+          workspaceName: "Smoke Workspace",
+          masterPhone: "79991112233",
+        },
+      },
+      { type: "start", eventId: "evt-1-ready", now },
+      globalContext,
+    );
+
+    expect(result.state.route).toEqual(
+      expect.objectContaining({
+        kind: "ready",
+        workspaceId: "ws_smoke",
+      }),
+    );
+    expect(result.effects).toContainEqual(
+      expect.objectContaining({
+        type: "reply",
+        text: expect.stringContaining("Мастер выбран: Smoke Workspace"),
+      }),
+    );
+  });
+
   it("fails fast in workspace mode when fixed workspace config is missing", async () => {
     const result = await handleClientEvent(
       undefined,
