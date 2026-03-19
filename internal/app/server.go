@@ -1032,12 +1032,6 @@ func (s *Server) handleChannelByProvider(w http.ResponseWriter, r *http.Request,
 		s.writeError(w, http.StatusNotFound, err.Error())
 		return
 	}
-	if provider == ChannelTelegram {
-		if err := s.syncTelegramWebhook(r.Context(), account); err != nil {
-			s.writeError(w, http.StatusBadGateway, err.Error())
-			return
-		}
-	}
 	s.writeJSON(w, http.StatusOK, account)
 }
 
@@ -1139,12 +1133,8 @@ func (s *Server) handleWebhook(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	switch {
-	case len(parts) == 4 && parts[0] == "telegram" && parts[1] == "client":
-		s.handleTelegramClientWebhook(w, r, parts[2], parts[3])
 	case len(parts) == 4 && parts[0] == "whatsapp" && parts[1] == "twilio":
 		s.handleWhatsAppWebhook(w, r, parts[2], parts[3])
-	case len(parts) == 2 && parts[0] == "telegram" && parts[1] == "operator":
-		s.handleTelegramOperatorWebhook(w, r)
 	default:
 		s.writeError(w, http.StatusNotFound, "webhook not found")
 	}
