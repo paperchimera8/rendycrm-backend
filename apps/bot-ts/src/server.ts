@@ -1,13 +1,20 @@
-import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
+import {
+  createServer,
+  type IncomingMessage,
+  type Server,
+  type ServerResponse,
+} from "node:http";
+import { resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 
 import {
-  handleClientEvent,
+  handleClientEvent as defaultHandleClientEvent,
   type ClientContext,
   type ClientEvent,
   type ClientSession,
 } from "./client/engine.js";
 import {
-  handleOperatorEvent,
+  handleOperatorEvent as defaultHandleOperatorEvent,
   type OperatorContext,
   type OperatorEvent,
   type OperatorSession,
@@ -15,11 +22,21 @@ import {
 
 const DEFAULT_PORT = 3100;
 const BODY_LIMIT_BYTES = 1 << 20;
-const HTTP_TIMEOUT_MS = 10_000;
+const DEFAULT_HTTP_TIMEOUT_MS = 10_000;
 
-const port = readPort(process.env.PORT);
-const goAPIBaseURL = readRequiredURL("GO_API_BASE_URL");
-const runtimeToken = readRequiredEnv("BOT_RUNTIME_INTERNAL_TOKEN");
+export interface BotRuntimeServerConfig {
+  readonly port: number;
+  readonly goAPIBaseURL: string;
+  readonly runtimeToken: string;
+  readonly httpTimeoutMs?: number;
+}
+
+export interface BotRuntimeServerDependencies {
+  readonly fetchImpl?: typeof fetch;
+  readonly logger?: Pick<Console, "error" | "log" | "warn">;
+  readonly handleClientEventImpl?: typeof defaultHandleClientEvent;
+  readonly handleOperatorEventImpl?: typeof defaultHandleOperatorEvent;
+}
 
 interface ClientPrepareEvent {
   readonly type: "start" | "message" | "callback";
@@ -77,171 +94,228 @@ interface ApplyResponse {
   readonly duplicate?: boolean;
 }
 
-const server = createServer(async (req, res) => {
-  try {
-    await route(req, res);
-  } catch (error) {
-    const message =
-      error instanceof Error ? error.message : "unexpected bot runtime error";
-    console.error("[bot-ts] request failed:", error);
-    writeJSON(res, 500, { error: message });
+class HTTPError extends Error {
+  readonly status: number;
+
+  constructor(status: number, message: string) {
+    super(message);
+    this.name = "HTTPError";
+    this.status = status;
   }
-});
+}
 
-server.listen(port, () => {
-  console.log(`[bot-ts] listening on :${port}`);
-});
+export function readServerConfig(
+  env: NodeJS.ProcessEnv = process.env,
+): BotRuntimeServerConfig {
+  return {
+    port: readPort(env.PORT),
+    goAPIBaseURL: readRequiredURL(env, "GO_API_BASE_URL"),
+    runtimeToken: readRequiredEnv(env, "BOT_RUNTIME_INTERNAL_TOKEN"),
+    httpTimeoutMs: DEFAULT_HTTP_TIMEOUT_MS,
+  };
+}
 
-process.on("SIGTERM", () => {
-  server.close(() => process.exit(0));
-});
+export function createBotRuntimeServer(
+  config: BotRuntimeServerConfig,
+  deps: BotRuntimeServerDependencies = {},
+): Server {
+  const fetchImpl = deps.fetchImpl ?? fetch;
+  const logger = deps.logger ?? console;
+  const handleClientEventImpl =
+    deps.handleClientEventImpl ?? defaultHandleClientEvent;
+  const handleOperatorEventImpl =
+    deps.handleOperatorEventImpl ?? defaultHandleOperatorEvent;
+  const httpTimeoutMs = config.httpTimeoutMs ?? DEFAULT_HTTP_TIMEOUT_MS;
 
-process.on("SIGINT", () => {
-  server.close(() => process.exit(0));
-});
-
-async function route(req: IncomingMessage, res: ServerResponse): Promise<void> {
-  const method = req.method ?? "GET";
-  const url = new URL(req.url ?? "/", "http://localhost");
-
-  if (method === "GET" && url.pathname === "/health") {
-    writeJSON(res, 200, { status: "ok" });
-    return;
-  }
-
-  if (method !== "POST") {
-    writeJSON(res, 405, { error: "method not allowed" });
-    return;
-  }
-
-  const clientMatch = url.pathname.match(
-    /^\/webhooks\/telegram\/client\/([^/]+)\/([^/]+)$/,
-  );
-  if (clientMatch) {
-    const accountId = clientMatch[1];
-    const secret = clientMatch[2];
-    if (!accountId || !secret) {
-      throw new Error("client webhook path is incomplete");
+  return createServer(async (req, res) => {
+    try {
+      await route(req, res);
+    } catch (error) {
+      const status = error instanceof HTTPError ? error.status : 500;
+      const message =
+        error instanceof Error ? error.message : "unexpected bot runtime error";
+      if (status >= 500) {
+        logger.error("[bot-ts] request failed:", error);
+      }
+      writeJSON(res, status, { error: message });
     }
-    await handleClientWebhook(req, res, accountId, secret);
-    return;
-  }
-
-  if (url.pathname === "/webhooks/telegram/operator") {
-    await handleOperatorWebhook(req, res);
-    return;
-  }
-
-  writeJSON(res, 404, { error: "not found" });
-}
-
-async function handleClientWebhook(
-  req: IncomingMessage,
-  res: ServerResponse,
-  accountId: string,
-  secret: string,
-): Promise<void> {
-  const update = await readJSONBody(req);
-  writeJSON(res, 200, { ok: true });
-  void processClientWebhook(accountId, secret, update).catch(
-    (error: unknown) => {
-      console.error("[bot-ts] client webhook processing failed:", error);
-    },
-  );
-}
-
-async function processClientWebhook(
-  accountId: string,
-  secret: string,
-  update: unknown,
-): Promise<void> {
-  const prepared = await postGoJSON<ClientPrepareResponse>(
-    "/internal/bot-runtime/client/prepare",
-    {
-      accountId,
-      secret,
-      update,
-    },
-  );
-  if (prepared.skip) {
-    return;
-  }
-
-  if (!prepared.event || !prepared.context || !prepared.snapshot) {
-    throw new Error("client prepare response is incomplete");
-  }
-
-  const transition = await handleClientEvent(
-    prepared.session,
-    normalizeClientEvent(prepared.event),
-    prepared.context,
-  );
-  const applied = await postGoJSON<ApplyResponse>("/internal/bot-runtime/client/apply", {
-    snapshot: prepared.snapshot,
-    transition,
   });
-  if (applied.duplicate) {
-    console.warn("[bot-ts] duplicate client update skipped", {
-      accountId,
-      chatId: prepared.snapshot.chatId,
-      updateId: prepared.snapshot.updateId,
-    });
-  }
-}
 
-async function handleOperatorWebhook(
-  req: IncomingMessage,
-  res: ServerResponse,
-): Promise<void> {
-  const secret = headerValue(req, "x-telegram-bot-api-secret-token");
-  if (!secret) {
-    writeJSON(res, 401, { error: "missing telegram webhook secret" });
-    return;
-  }
+  async function route(
+    req: IncomingMessage,
+    res: ServerResponse,
+  ): Promise<void> {
+    const method = req.method ?? "GET";
+    const url = new URL(req.url ?? "/", "http://localhost");
 
-  const update = await readJSONBody(req);
-  writeJSON(res, 200, { ok: true });
-  void processOperatorWebhook(secret, update).catch((error: unknown) => {
-    console.error("[bot-ts] operator webhook processing failed:", error);
-  });
-}
+    if (method === "GET" && url.pathname === "/health") {
+      writeJSON(res, 200, { status: "ok" });
+      return;
+    }
 
-async function processOperatorWebhook(
-  secret: string,
-  update: unknown,
-): Promise<void> {
-  const prepared = await postGoJSON<OperatorPrepareResponse>(
-    "/internal/bot-runtime/operator/prepare",
-    {
-      secret,
-      update,
-    },
-  );
-  if (prepared.skip) {
-    return;
+    if (method !== "POST") {
+      writeJSON(res, 405, { error: "method not allowed" });
+      return;
+    }
+
+    const clientMatch = url.pathname.match(
+      /^\/webhooks\/telegram\/client\/([^/]+)\/([^/]+)$/,
+    );
+    if (clientMatch) {
+      const accountId = clientMatch[1];
+      const secret = clientMatch[2];
+      if (!accountId || !secret) {
+        throw new HTTPError(400, "client webhook path is incomplete");
+      }
+      await handleClientWebhook(req, res, accountId, secret);
+      return;
+    }
+
+    if (url.pathname === "/webhooks/telegram/operator") {
+      await handleOperatorWebhook(req, res);
+      return;
+    }
+
+    writeJSON(res, 404, { error: "not found" });
   }
 
-  if (!prepared.event || !prepared.context || !prepared.snapshot) {
-    throw new Error("operator prepare response is incomplete");
+  async function handleClientWebhook(
+    req: IncomingMessage,
+    res: ServerResponse,
+    accountId: string,
+    secret: string,
+  ): Promise<void> {
+    const update = await readJSONBody(req);
+    await processClientWebhook(accountId, secret, update);
+    writeJSON(res, 200, { ok: true });
   }
 
-  const transition = await handleOperatorEvent(
-    prepared.session,
-    prepared.event,
-    prepared.context,
-  );
-  const applied = await postGoJSON<ApplyResponse>(
-    "/internal/bot-runtime/operator/apply",
-    {
-      snapshot: prepared.snapshot,
-      transition,
-    },
-  );
-  if (applied.duplicate) {
-    console.warn("[bot-ts] duplicate operator update skipped", {
-      chatId: prepared.snapshot.chatId,
-      updateId: prepared.snapshot.updateId,
-    });
+  async function processClientWebhook(
+    accountId: string,
+    secret: string,
+    update: unknown,
+  ): Promise<void> {
+    const prepared = await postGoJSON<ClientPrepareResponse>(
+      "/internal/bot-runtime/client/prepare",
+      {
+        accountId,
+        secret,
+        update,
+      },
+    );
+    if (prepared.skip) {
+      return;
+    }
+
+    if (!prepared.event || !prepared.context || !prepared.snapshot) {
+      throw new HTTPError(502, "client prepare response is incomplete");
+    }
+
+    const transition = await handleClientEventImpl(
+      prepared.session,
+      normalizeClientEvent(prepared.event),
+      prepared.context,
+    );
+    const applied = await postGoJSON<ApplyResponse>(
+      "/internal/bot-runtime/client/apply",
+      {
+        snapshot: prepared.snapshot,
+        transition,
+      },
+    );
+    if (applied.duplicate) {
+      logger.warn("[bot-ts] duplicate client update skipped", {
+        accountId,
+        chatId: prepared.snapshot.chatId,
+        updateId: prepared.snapshot.updateId,
+      });
+    }
+  }
+
+  async function handleOperatorWebhook(
+    req: IncomingMessage,
+    res: ServerResponse,
+  ): Promise<void> {
+    const secret = headerValue(req, "x-telegram-bot-api-secret-token");
+    if (!secret) {
+      writeJSON(res, 401, { error: "missing telegram webhook secret" });
+      return;
+    }
+
+    const update = await readJSONBody(req);
+    await processOperatorWebhook(secret, update);
+    writeJSON(res, 200, { ok: true });
+  }
+
+  async function processOperatorWebhook(
+    secret: string,
+    update: unknown,
+  ): Promise<void> {
+    const prepared = await postGoJSON<OperatorPrepareResponse>(
+      "/internal/bot-runtime/operator/prepare",
+      {
+        secret,
+        update,
+      },
+    );
+    if (prepared.skip) {
+      return;
+    }
+
+    if (!prepared.event || !prepared.context || !prepared.snapshot) {
+      throw new HTTPError(502, "operator prepare response is incomplete");
+    }
+
+    const transition = await handleOperatorEventImpl(
+      prepared.session,
+      prepared.event,
+      prepared.context,
+    );
+    const applied = await postGoJSON<ApplyResponse>(
+      "/internal/bot-runtime/operator/apply",
+      {
+        snapshot: prepared.snapshot,
+        transition,
+      },
+    );
+    if (applied.duplicate) {
+      logger.warn("[bot-ts] duplicate operator update skipped", {
+        chatId: prepared.snapshot.chatId,
+        updateId: prepared.snapshot.updateId,
+      });
+    }
+  }
+
+  async function postGoJSON<TResponse>(
+    path: string,
+    body: unknown,
+  ): Promise<TResponse> {
+    let response: Response;
+    try {
+      response = await fetchImpl(new URL(path, config.goAPIBaseURL), {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-Bot-Runtime-Token": config.runtimeToken,
+        },
+        body: JSON.stringify(body),
+        signal: AbortSignal.timeout(httpTimeoutMs),
+      });
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "request failed";
+      throw new HTTPError(502, `go api ${path} request failed: ${message}`);
+    }
+
+    if (!response.ok) {
+      const message = await response.text();
+      throw new HTTPError(
+        502,
+        `go api ${path} returned ${response.status}: ${message.trim() || "empty response"}`,
+      );
+    }
+
+    return (await response.json()) as TResponse;
   }
 }
 
@@ -253,45 +327,21 @@ async function readJSONBody(req: IncomingMessage): Promise<unknown> {
     const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
     total += buffer.length;
     if (total > BODY_LIMIT_BYTES) {
-      throw new Error("request body is too large");
+      throw new HTTPError(413, "request body is too large");
     }
     chunks.push(buffer);
   }
 
   const raw = Buffer.concat(chunks).toString("utf8").trim();
   if (!raw) {
-    throw new Error("request body is empty");
+    throw new HTTPError(400, "request body is empty");
   }
 
   try {
     return JSON.parse(raw);
   } catch {
-    throw new Error("invalid json payload");
+    throw new HTTPError(400, "invalid json payload");
   }
-}
-
-async function postGoJSON<TResponse>(
-  path: string,
-  body: unknown,
-): Promise<TResponse> {
-  const response = await fetch(new URL(path, goAPIBaseURL), {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "X-Bot-Runtime-Token": runtimeToken,
-    },
-    body: JSON.stringify(body),
-    signal: AbortSignal.timeout(HTTP_TIMEOUT_MS),
-  });
-
-  if (!response.ok) {
-    const message = await response.text();
-    throw new Error(
-      `go api ${path} returned ${response.status}: ${message.trim() || "empty response"}`,
-    );
-  }
-
-  return (await response.json()) as TResponse;
 }
 
 function normalizeClientEvent(event: ClientPrepareEvent): ClientEvent {
@@ -330,16 +380,22 @@ function writeJSON(
   res.end(JSON.stringify(payload));
 }
 
-function readRequiredEnv(name: string): string {
-  const value = process.env[name]?.trim();
+function readRequiredEnv(
+  env: NodeJS.ProcessEnv,
+  name: string,
+): string {
+  const value = env[name]?.trim();
   if (!value) {
     throw new Error(`${name} is required`);
   }
   return value;
 }
 
-function readRequiredURL(name: string): string {
-  const value = readRequiredEnv(name);
+function readRequiredURL(
+  env: NodeJS.ProcessEnv,
+  name: string,
+): string {
+  const value = readRequiredEnv(env, name);
   return value.endsWith("/") ? value.slice(0, -1) : value;
 }
 
@@ -361,4 +417,27 @@ function headerValue(req: IncomingMessage, key: string): string {
     return value[0]?.trim() ?? "";
   }
   return value?.trim() ?? "";
+}
+
+function isEntrypoint(): boolean {
+  const currentModulePath = fileURLToPath(import.meta.url);
+  const entrypointPath = process.argv[1] ? resolve(process.argv[1]) : "";
+  return entrypointPath === currentModulePath;
+}
+
+if (isEntrypoint()) {
+  const config = readServerConfig(process.env);
+  const server = createBotRuntimeServer(config);
+
+  server.listen(config.port, () => {
+    console.log(`[bot-ts] listening on :${config.port}`);
+  });
+
+  process.on("SIGTERM", () => {
+    server.close(() => process.exit(0));
+  });
+
+  process.on("SIGINT", () => {
+    server.close(() => process.exit(0));
+  });
 }
