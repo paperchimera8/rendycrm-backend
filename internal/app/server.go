@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/redis/go-redis/v9"
@@ -27,12 +28,18 @@ type AuthContext struct {
 
 const sessionCookieName = "rendycrm_session"
 
+type loginAttempt struct {
+	count   int
+	resetAt time.Time
+}
+
 type Server struct {
 	cfg          Config
 	runtime      *Runtime
 	mux          *http.ServeMux
 	apiMux       *http.ServeMux
 	outboundWake chan struct{}
+	loginLimiter sync.Map // map[string]*loginAttempt keyed by IP
 }
 
 func NewServer(ctx context.Context, cfg Config) (*Server, error) {
@@ -206,9 +213,6 @@ func (s *Server) requireAuth(next func(http.ResponseWriter, *http.Request, AuthC
 			}
 		}
 		if token == "" {
-			token = strings.TrimSpace(r.URL.Query().Get("token"))
-		}
-		if token == "" {
 			s.writeError(w, http.StatusUnauthorized, "missing token")
 			return
 		}
@@ -346,9 +350,36 @@ func isIndexPath(path string) bool {
 	return path == "/" || strings.EqualFold(path, "/index.html")
 }
 
+func (s *Server) loginIP(r *http.Request) string {
+	if fwd := strings.TrimSpace(r.Header.Get("X-Forwarded-For")); fwd != "" {
+		return strings.SplitN(fwd, ",", 2)[0]
+	}
+	if host, _, err := strings.Cut(r.RemoteAddr, ":"); err {
+		return host
+	}
+	return r.RemoteAddr
+}
+
+func (s *Server) checkLoginRateLimit(r *http.Request) bool {
+	ip := s.loginIP(r)
+	now := time.Now()
+	val, _ := s.loginLimiter.LoadOrStore(ip, &loginAttempt{resetAt: now.Add(time.Minute)})
+	attempt := val.(*loginAttempt)
+	if now.After(attempt.resetAt) {
+		attempt.count = 0
+		attempt.resetAt = now.Add(time.Minute)
+	}
+	attempt.count++
+	return attempt.count <= 5
+}
+
 func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		s.writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	if !s.checkLoginRateLimit(r) {
+		s.writeError(w, http.StatusTooManyRequests, "too many login attempts")
 		return
 	}
 	var payload struct {
@@ -466,7 +497,8 @@ func (s *Server) handleConversationByID(w http.ResponseWriter, r *http.Request, 
 		}
 		conversation, messages, _, err := s.runtime.repository.ConversationDetail(r.Context(), auth.Workspace.ID, id)
 		if err != nil {
-			s.writeError(w, http.StatusNotFound, err.Error())
+			log.Printf("conversation detail after reply id=%s: %v", id, err)
+			s.writeError(w, http.StatusInternalServerError, "internal server error")
 			return
 		}
 		var message Message
@@ -493,7 +525,8 @@ func (s *Server) handleConversationByID(w http.ResponseWriter, r *http.Request, 
 		}
 		conversation, _, _, err := s.runtime.repository.ConversationDetail(r.Context(), auth.Workspace.ID, id)
 		if err != nil {
-			s.writeError(w, http.StatusNotFound, err.Error())
+			log.Printf("conversation detail after assign id=%s: %v", id, err)
+			s.writeError(w, http.StatusInternalServerError, "internal server error")
 			return
 		}
 		_ = s.publishEvent(r.Context(), SSEEvent{Type: EventConversationAssign, Data: conversation})
@@ -511,7 +544,8 @@ func (s *Server) handleConversationByID(w http.ResponseWriter, r *http.Request, 
 		}
 		conversation, _, _, err := s.runtime.repository.ConversationDetail(r.Context(), auth.Workspace.ID, id)
 		if err != nil {
-			s.writeError(w, http.StatusNotFound, err.Error())
+			log.Printf("conversation detail after resolve id=%s: %v", id, err)
+			s.writeError(w, http.StatusInternalServerError, "internal server error")
 			return
 		}
 		_ = s.publishDashboard(r.Context(), auth.Workspace.ID)
@@ -529,7 +563,8 @@ func (s *Server) handleConversationByID(w http.ResponseWriter, r *http.Request, 
 		}
 		conversation, _, _, err := s.runtime.repository.ConversationDetail(r.Context(), auth.Workspace.ID, id)
 		if err != nil {
-			s.writeError(w, http.StatusNotFound, err.Error())
+			log.Printf("conversation detail after reopen id=%s: %v", id, err)
+			s.writeError(w, http.StatusInternalServerError, "internal server error")
 			return
 		}
 		_ = s.publishDashboard(r.Context(), auth.Workspace.ID)
