@@ -1,0 +1,5 @@
+.env
+rendycrm-bk
+dist
+node_modules
+main
