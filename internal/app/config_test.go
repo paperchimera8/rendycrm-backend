@@ -39,3 +39,13 @@ func TestRedisConfigFromComponentsIncludesUsername(t *testing.T) {
 		t.Fatalf("unexpected redis password: %q", cfg.RedisPassword)
 	}
 }
+
+func TestLoadConfigReadsBotEngineBaseURL(t *testing.T) {
+	t.Setenv("BOT_ENGINE_BASE_URL", " http://bot-engine:3100/ ")
+
+	cfg := LoadConfig()
+
+	if cfg.BotEngineBaseURL != "http://bot-engine:3100/" {
+		t.Fatalf("unexpected bot engine base url: %q", cfg.BotEngineBaseURL)
+	}
+}

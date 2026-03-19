@@ -25,6 +25,7 @@ type Config struct {
 	JobsQueue           string
 	MigrationsPath      string
 	PublicBaseURL       string
+	BotEngineBaseURL    string
 	OperatorBotUsername string
 	TelegramAPIBaseURL  string
 	EncryptionSecret    string
@@ -49,6 +50,7 @@ func LoadConfig() Config {
 		JobsQueue:           envOrDefault("REDIS_JOBS_QUEUE", "rendycrm:jobs"),
 		MigrationsPath:      envOrDefault("MIGRATIONS_PATH", filepath.Join("migrations")),
 		PublicBaseURL:       envOrDefault("PUBLIC_BASE_URL", "http://127.0.0.1:8080"),
+		BotEngineBaseURL:    strings.TrimSpace(os.Getenv("BOT_ENGINE_BASE_URL")),
 		OperatorBotUsername: envOrDefault("TELEGRAM_OPERATOR_BOT_USERNAME", "rendycrm_operator_bot"),
 		TelegramAPIBaseURL:  envOrDefault("TELEGRAM_API_BASE_URL", "https://api.telegram.org"),
 		EncryptionSecret:    strings.TrimSpace(envOrDefault("APP_ENCRYPTION_SECRET", "change-me-in-production")),

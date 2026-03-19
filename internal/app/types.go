@@ -46,6 +46,7 @@ type OperatorBotBinding = d.OperatorBotBinding
 type OperatorBotLinkCode = d.OperatorBotLinkCode
 type OperatorBotSettings = d.OperatorBotSettings
 type MasterProfile = d.MasterProfile
+type ClientBotMasterDirectoryEntry = d.ClientBotMasterDirectoryEntry
 type BotSession = d.BotSession
 type InboundProfile = d.InboundProfile
 type InboundMessageInput = d.InboundMessageInput

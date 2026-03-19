@@ -443,7 +443,7 @@ func (s *Server) notifyOperatorsAboutConversation(ctx context.Context, conversat
 	}
 }
 
-func (s *Server) handleTelegramClientUpdate(ctx context.Context, account ChannelAccount, update tgapi.Update) error {
+func (s *Server) handleTelegramClientUpdateLegacy(ctx context.Context, account ChannelAccount, update tgapi.Update) error {
 	chatID := ""
 	messageID := int64(0)
 	callbackID := ""
@@ -488,7 +488,7 @@ func (s *Server) handleTelegramClientUpdate(ctx context.Context, account Channel
 
 	if update.CallbackQuery != nil {
 		s.answerTelegramCallback(ctx, account, update.CallbackQuery.ID, "")
-		return s.handleTelegramClientCallback(ctx, account, update)
+		return s.handleTelegramClientCallbackLegacy(ctx, account, update)
 	}
 	if update.Message == nil {
 		return nil
@@ -603,7 +603,7 @@ func (s *Server) handleTelegramClientUpdate(ctx context.Context, account Channel
 	return nil
 }
 
-func (s *Server) handleTelegramClientCallback(ctx context.Context, account ChannelAccount, update tgapi.Update) error {
+func (s *Server) handleTelegramClientCallbackLegacy(ctx context.Context, account ChannelAccount, update tgapi.Update) error {
 	if update.CallbackQuery == nil || update.CallbackQuery.Message == nil {
 		return nil
 	}
@@ -904,7 +904,7 @@ func (s *Server) handleTelegramClientCallback(ctx context.Context, account Chann
 	return nil
 }
 
-func (s *Server) handleTelegramOperatorUpdate(ctx context.Context, operatorAccount ChannelAccount, update tgapi.Update) error {
+func (s *Server) handleTelegramOperatorUpdateLegacy(ctx context.Context, operatorAccount ChannelAccount, update tgapi.Update) error {
 	chatID, userID, text, err := parseOperatorUpdate(update)
 	if err != nil {
 		return nil
