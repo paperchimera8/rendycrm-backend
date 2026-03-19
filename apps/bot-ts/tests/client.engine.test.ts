@@ -86,6 +86,35 @@ describe("client engine", () => {
     );
   });
 
+  it("accepts sessions restored from backend without recentEventIds", async () => {
+    const sessionWithoutRecentEventIds = {
+      route: {
+        kind: "awaiting_master_phone" as const,
+        promptedAt: new Date(0).toISOString(),
+      },
+      booking: { kind: "idle" as const },
+    };
+
+    const result = await handleClientEvent(
+      sessionWithoutRecentEventIds,
+      { type: "start", eventId: "evt-missing-recent-client", now },
+      {
+        ...globalContext,
+        dedupStore: new InMemoryDedupStore(),
+      },
+    );
+
+    expect(result.state.recentEventIds).toEqual([
+      "evt-missing-recent-client",
+    ]);
+    expect(result.effects).toContainEqual(
+      expect.objectContaining({
+        type: "reply",
+        text: expect.stringContaining("Введите номер мастера"),
+      }),
+    );
+  });
+
   it("fails fast in workspace mode when fixed workspace config is missing", async () => {
     const result = await handleClientEvent(
       undefined,

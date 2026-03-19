@@ -99,7 +99,7 @@ export interface SlotOption {
 }
 
 export interface RecentEventState {
-  readonly recentEventIds: readonly string[];
+  readonly recentEventIds?: readonly string[];
 }
 
 export interface DedupStore {
@@ -139,14 +139,15 @@ export function reply(
 }
 
 export function appendRecentEventId(
-  eventIds: readonly string[],
+  eventIds: readonly string[] | undefined,
   eventId: string,
   limit = DEFAULT_RECENT_EVENT_LIMIT,
 ): readonly string[] {
-  if (!eventId || eventIds.includes(eventId)) {
-    return eventIds;
+  const currentEventIds = normalizeRecentEventIds(eventIds);
+  if (!eventId || currentEventIds.includes(eventId)) {
+    return currentEventIds;
   }
-  return [...eventIds, eventId].slice(-limit);
+  return [...currentEventIds, eventId].slice(-limit);
 }
 
 export async function claimEvent<State extends RecentEventState>(
@@ -160,6 +161,8 @@ export async function claimEvent<State extends RecentEventState>(
     return { claimed: true, state };
   }
 
+  const recentEventIds = normalizeRecentEventIds(state.recentEventIds);
+
   if (dedupStore) {
     try {
       const claimed = await dedupStore.claim(`${namespace}:${eventId}`, ttlSeconds);
@@ -167,11 +170,11 @@ export async function claimEvent<State extends RecentEventState>(
         return { claimed: false, state };
       }
     } catch {
-      if (state.recentEventIds.includes(eventId)) {
+      if (recentEventIds.includes(eventId)) {
         return { claimed: false, state };
       }
     }
-  } else if (state.recentEventIds.includes(eventId)) {
+  } else if (recentEventIds.includes(eventId)) {
     return { claimed: false, state };
   }
 
@@ -179,7 +182,13 @@ export async function claimEvent<State extends RecentEventState>(
     claimed: true,
     state: {
       ...state,
-      recentEventIds: appendRecentEventId(state.recentEventIds, eventId),
+      recentEventIds: appendRecentEventId(recentEventIds, eventId),
     },
   };
+}
+
+function normalizeRecentEventIds(
+  eventIds: readonly string[] | undefined,
+): readonly string[] {
+  return Array.isArray(eventIds) ? eventIds : [];
 }

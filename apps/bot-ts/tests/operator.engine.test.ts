@@ -127,6 +127,35 @@ describe("operator engine", () => {
     );
   });
 
+  it("accepts operator sessions restored from backend without recentEventIds", async () => {
+    const result = await handleOperatorEvent(
+      {
+        binding: {
+          kind: "bound" as const,
+          workspaceId: "ws_smoke",
+          userId: "usr_1",
+          chatId: "tg-chat-1",
+        },
+        interaction: { kind: "idle" as const },
+      },
+      { type: "message", eventId: "evt-missing-recent-operator", text: "/dashboard" },
+      {
+        ...operatorContext,
+        dedupStore: new InMemoryDedupStore(),
+      },
+    );
+
+    expect(result.state.recentEventIds).toEqual([
+      "evt-missing-recent-operator",
+    ]);
+    expect(result.effects).toContainEqual(
+      expect.objectContaining({
+        type: "reply",
+        text: expect.stringContaining("Записей сегодня: 4"),
+      }),
+    );
+  });
+
   it("shows dashboard for bound operator", async () => {
     const session = {
       ...createOperatorSession(),
