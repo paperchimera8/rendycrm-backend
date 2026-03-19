@@ -1,6 +1,7 @@
 package app
 
 import (
+	"log"
 	"net/http"
 	"strings"
 	"time"
@@ -62,7 +63,8 @@ func (s *Server) handleSlotSettings(w http.ResponseWriter, r *http.Request, auth
 	}
 	settings, err := s.runtime.repository.UpdateSlotSettings(r.Context(), auth.Workspace.ID, payload)
 	if err != nil {
-		s.writeError(w, http.StatusBadRequest, err.Error())
+		log.Printf("update slot settings: %v", err)
+		s.writeError(w, http.StatusInternalServerError, "internal server error")
 		return
 	}
 	s.writeJSON(w, http.StatusOK, settings)
@@ -88,7 +90,8 @@ func (s *Server) handleSlotColors(w http.ResponseWriter, r *http.Request, auth A
 		}
 		item, err := s.runtime.repository.CreateSlotColor(r.Context(), auth.Workspace.ID, payload.Name, payload.Hex)
 		if err != nil {
-			s.writeError(w, http.StatusBadRequest, err.Error())
+			log.Printf("create slot color: %v", err)
+			s.writeError(w, http.StatusInternalServerError, "internal server error")
 			return
 		}
 		s.writeJSON(w, http.StatusCreated, item)
@@ -115,13 +118,15 @@ func (s *Server) handleSlotColorByID(w http.ResponseWriter, r *http.Request, aut
 		}
 		item, err := s.runtime.repository.UpdateSlotColor(r.Context(), auth.Workspace.ID, id, payload.Name, payload.Hex)
 		if err != nil {
-			s.writeError(w, http.StatusBadRequest, err.Error())
+			log.Printf("update slot color: %v", err)
+			s.writeError(w, http.StatusInternalServerError, "internal server error")
 			return
 		}
 		s.writeJSON(w, http.StatusOK, item)
 	case http.MethodDelete:
 		if err := s.runtime.repository.DeleteSlotColor(r.Context(), auth.Workspace.ID, id); err != nil {
-			s.writeError(w, http.StatusBadRequest, err.Error())
+			log.Printf("delete slot color: %v", err)
+			s.writeError(w, http.StatusInternalServerError, "internal server error")
 			return
 		}
 		s.writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
@@ -143,7 +148,8 @@ func (s *Server) handleSlotColorsReorder(w http.ResponseWriter, r *http.Request,
 		return
 	}
 	if err := s.runtime.repository.ReorderSlotColors(r.Context(), auth.Workspace.ID, payload.IDs); err != nil {
-		s.writeError(w, http.StatusBadRequest, err.Error())
+		log.Printf("reorder slot colors: %v", err)
+		s.writeError(w, http.StatusInternalServerError, "internal server error")
 		return
 	}
 	s.writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
@@ -166,7 +172,8 @@ func (s *Server) handleSlotTemplates(w http.ResponseWriter, r *http.Request, aut
 		}
 		item, err := s.runtime.repository.CreateSlotTemplate(r.Context(), auth.Workspace.ID, payload)
 		if err != nil {
-			s.writeError(w, http.StatusBadRequest, err.Error())
+			log.Printf("create slot template: %v", err)
+			s.writeError(w, http.StatusInternalServerError, "internal server error")
 			return
 		}
 		s.writeJSON(w, http.StatusCreated, item)
@@ -190,13 +197,15 @@ func (s *Server) handleSlotTemplateByID(w http.ResponseWriter, r *http.Request, 
 		}
 		item, err := s.runtime.repository.UpdateSlotTemplate(r.Context(), auth.Workspace.ID, id, payload)
 		if err != nil {
-			s.writeError(w, http.StatusBadRequest, err.Error())
+			log.Printf("update slot template: %v", err)
+			s.writeError(w, http.StatusInternalServerError, "internal server error")
 			return
 		}
 		s.writeJSON(w, http.StatusOK, item)
 	case http.MethodDelete:
 		if err := s.runtime.repository.DeleteSlotTemplate(r.Context(), auth.Workspace.ID, id); err != nil {
-			s.writeError(w, http.StatusBadRequest, err.Error())
+			log.Printf("delete slot template: %v", err)
+			s.writeError(w, http.StatusInternalServerError, "internal server error")
 			return
 		}
 		s.writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
@@ -218,7 +227,8 @@ func (s *Server) handleSlotTemplatesReorder(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	if err := s.runtime.repository.ReorderSlotTemplates(r.Context(), auth.Workspace.ID, payload.IDs); err != nil {
-		s.writeError(w, http.StatusBadRequest, err.Error())
+		log.Printf("reorder slot templates: %v", err)
+		s.writeError(w, http.StatusInternalServerError, "internal server error")
 		return
 	}
 	s.writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
@@ -284,7 +294,8 @@ func (s *Server) handleDaySlots(w http.ResponseWriter, r *http.Request, auth Aut
 			Note:            payload.Note,
 		})
 		if err != nil {
-			s.writeError(w, http.StatusBadRequest, err.Error())
+			log.Printf("create day slot: %v", err)
+			s.writeError(w, http.StatusInternalServerError, "internal server error")
 			return
 		}
 		s.writeJSON(w, http.StatusCreated, item)
@@ -306,7 +317,8 @@ func (s *Server) handleDaySlotByID(w http.ResponseWriter, r *http.Request, auth 
 		case "block":
 			item, err := s.runtime.repository.SetDaySlotStatus(r.Context(), auth.Workspace.ID, id, DailySlotBlocked)
 			if err != nil {
-				s.writeError(w, http.StatusBadRequest, err.Error())
+				log.Printf("block day slot: %v", err)
+				s.writeError(w, http.StatusInternalServerError, "internal server error")
 				return
 			}
 			s.writeJSON(w, http.StatusOK, item)
@@ -314,7 +326,8 @@ func (s *Server) handleDaySlotByID(w http.ResponseWriter, r *http.Request, auth 
 		case "unblock":
 			item, err := s.runtime.repository.SetDaySlotStatus(r.Context(), auth.Workspace.ID, id, DailySlotFree)
 			if err != nil {
-				s.writeError(w, http.StatusBadRequest, err.Error())
+				log.Printf("unblock day slot: %v", err)
+				s.writeError(w, http.StatusInternalServerError, "internal server error")
 				return
 			}
 			s.writeJSON(w, http.StatusOK, item)
@@ -348,13 +361,15 @@ func (s *Server) handleDaySlotByID(w http.ResponseWriter, r *http.Request, auth 
 			Note:            payload.Note,
 		})
 		if err != nil {
-			s.writeError(w, http.StatusBadRequest, err.Error())
+			log.Printf("update day slot: %v", err)
+			s.writeError(w, http.StatusInternalServerError, "internal server error")
 			return
 		}
 		s.writeJSON(w, http.StatusOK, item)
 	case http.MethodDelete:
 		if err := s.runtime.repository.DeleteDaySlot(r.Context(), auth.Workspace.ID, id); err != nil {
-			s.writeError(w, http.StatusBadRequest, err.Error())
+			log.Printf("delete day slot: %v", err)
+			s.writeError(w, http.StatusInternalServerError, "internal server error")
 			return
 		}
 		s.writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
@@ -377,7 +392,8 @@ func (s *Server) handleDaySlotsReorder(w http.ResponseWriter, r *http.Request, a
 		return
 	}
 	if err := s.runtime.repository.ReorderDaySlots(r.Context(), auth.Workspace.ID, payload.SlotDate, payload.IDs); err != nil {
-		s.writeError(w, http.StatusBadRequest, err.Error())
+		log.Printf("reorder day slots: %v", err)
+		s.writeError(w, http.StatusInternalServerError, "internal server error")
 		return
 	}
 	s.writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
@@ -403,7 +419,8 @@ func (s *Server) handleDaySlotMove(w http.ResponseWriter, r *http.Request, auth 
 	}
 	item, err := s.runtime.repository.MoveDaySlot(r.Context(), auth.Workspace.ID, payload.ID, payload.TargetSlotDate, payload.TargetIndex)
 	if err != nil {
-		s.writeError(w, http.StatusBadRequest, err.Error())
+		log.Printf("move day slot: %v", err)
+		s.writeError(w, http.StatusInternalServerError, "internal server error")
 		return
 	}
 	s.writeJSON(w, http.StatusOK, item)
@@ -456,7 +473,8 @@ func (s *Server) handleSlotByID(w http.ResponseWriter, r *http.Request, auth Aut
 	}
 	hold, err := s.runtime.repository.CreateSlotHold(r.Context(), auth.Workspace.ID, parts[0], payload.CustomerID)
 	if err != nil {
-		s.writeError(w, http.StatusBadRequest, err.Error())
+		log.Printf("create slot hold: %v", err)
+		s.writeError(w, http.StatusInternalServerError, "internal server error")
 		return
 	}
 	_ = s.publishEvent(r.Context(), SSEEvent{Type: EventBookingUpdated, Data: hold})
@@ -474,7 +492,8 @@ func (s *Server) handleSlotHoldByID(w http.ResponseWriter, r *http.Request, auth
 		return
 	}
 	if err := s.runtime.repository.ReleaseSlotHold(r.Context(), auth.Workspace.ID, id); err != nil {
-		s.writeError(w, http.StatusBadRequest, err.Error())
+		log.Printf("release slot hold: %v", err)
+		s.writeError(w, http.StatusInternalServerError, "internal server error")
 		return
 	}
 	s.writeJSON(w, http.StatusOK, map[string]bool{"ok": true})

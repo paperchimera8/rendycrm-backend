@@ -343,7 +343,8 @@ func (s *Server) handleBotRuntimeClientPrepare(w http.ResponseWriter, r *http.Re
 		if errors.Is(err, sql.ErrNoRows) {
 			status = http.StatusNotFound
 		}
-		s.writeError(w, status, err.Error())
+		log.Printf("bot runtime client prepare: %v", err)
+		s.writeError(w, status, "internal server error")
 		return
 	}
 	s.writeJSON(w, http.StatusOK, response)
@@ -364,7 +365,8 @@ func (s *Server) handleBotRuntimeClientApply(w http.ResponseWriter, r *http.Requ
 	}
 	duplicate, err := s.applyTelegramClientRuntime(r.Context(), request)
 	if err != nil {
-		s.writeError(w, http.StatusInternalServerError, err.Error())
+		log.Printf("bot runtime client apply: %v", err)
+		s.writeError(w, http.StatusInternalServerError, "internal server error")
 		return
 	}
 	s.writeJSON(w, http.StatusOK, botRuntimeApplyResponse{OK: true, Duplicate: duplicate})
@@ -385,7 +387,8 @@ func (s *Server) handleBotRuntimeOperatorPrepare(w http.ResponseWriter, r *http.
 		if errors.Is(err, sql.ErrNoRows) {
 			status = http.StatusNotFound
 		}
-		s.writeError(w, status, err.Error())
+		log.Printf("bot runtime operator prepare: %v", err)
+		s.writeError(w, status, "internal server error")
 		return
 	}
 	s.writeJSON(w, http.StatusOK, response)
@@ -406,7 +409,8 @@ func (s *Server) handleBotRuntimeOperatorApply(w http.ResponseWriter, r *http.Re
 	}
 	duplicate, err := s.applyTelegramOperatorRuntime(r.Context(), request)
 	if err != nil {
-		s.writeError(w, http.StatusInternalServerError, err.Error())
+		log.Printf("bot runtime operator apply: %v", err)
+		s.writeError(w, http.StatusInternalServerError, "internal server error")
 		return
 	}
 	s.writeJSON(w, http.StatusOK, botRuntimeApplyResponse{OK: true, Duplicate: duplicate})
@@ -1301,6 +1305,13 @@ func (s *Server) buildBotEngineOperatorWorkspace(ctx context.Context, workspaceI
 		})
 	}
 
+	workspaceLoc := time.UTC
+	if workspace.Timezone != "" {
+		if loc, err := time.LoadLocation(workspace.Timezone); err == nil {
+			workspaceLoc = loc
+		}
+	}
+
 	now := time.Now().UTC()
 	revenue := 0
 	nextSlot := "нет"
@@ -1312,11 +1323,11 @@ func (s *Server) buildBotEngineOperatorWorkspace(ctx context.Context, workspaceI
 			revenue += booking.Amount
 		}
 		if nextSlot == "нет" && booking.StartsAt.After(now) {
-			nextSlot = booking.StartsAt.In(time.Local).Format("Mon 02.01 15:04")
+			nextSlot = booking.StartsAt.In(workspaceLoc).Format("Mon 02.01 15:04")
 		}
 	}
 	if nextSlot == "нет" && len(availableSlots) > 0 {
-		nextSlot = availableSlots[0].StartsAt.In(time.Local).Format("Mon 02.01 15:04")
+		nextSlot = availableSlots[0].StartsAt.In(workspaceLoc).Format("Mon 02.01 15:04")
 	}
 
 	operatorConversations := make([]botEngineOperatorConversation, 0, len(conversations))
@@ -1947,7 +1958,7 @@ func formatTelegramSlotLabel(startsAt time.Time) string {
 	if startsAt.IsZero() {
 		return ""
 	}
-	return startsAt.In(time.Local).Format("02.01 15:04")
+	return startsAt.UTC().Format("02.01 15:04")
 }
 
 func firstNonEmptyString(values ...string) string {
