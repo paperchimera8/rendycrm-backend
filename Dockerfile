@@ -30,11 +30,11 @@ RUN chmod +x /docker-entrypoint.sh
 RUN test -f /web/index.html
 RUN test -d /web/assets
 RUN test "$(find /web/assets -maxdepth 1 -type f | wc -l)" -gt 0
-EXPOSE 3000
-ENV PORT=3000
+EXPOSE 8080
+ENV PORT=8080
 ENV STATIC_DIR=/web
 ENV APP_BASE_PATH=/app
 ENV PUBLIC_BASE_URL=https://rendycrm.ru/api
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
-  CMD curl -f http://localhost:3000/health || exit 1
+  CMD curl -f http://localhost:8080/health || exit 1
 ENTRYPOINT ["/docker-entrypoint.sh"]
