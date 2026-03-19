@@ -3,6 +3,7 @@ import { Outlet, createRootRouteWithContext, createRoute, createRouter, redirect
 import { AppShell } from './components/AppShell'
 import { RouterErrorView } from './components/RouterErrorView'
 import { LoginPage } from './routes/LoginPage'
+import { CalendarPage } from './routes/CalendarPage'
 import { DashboardPage } from './routes/DashboardPage'
 import { DialogsPage } from './routes/DialogsPage'
 import { AvailabilityPage } from './routes/AvailabilityPage'
@@ -10,6 +11,7 @@ import { ReviewsPage } from './routes/ReviewsPage'
 import { AnalyticsPage } from './routes/AnalyticsPage'
 import { SettingsPage } from './routes/SettingsPage'
 import { getToken } from './lib/api'
+import { APP_BASE_PATH, appUrl } from './lib/basePath'
 
 export interface RouterContext {
   queryClient: QueryClient
@@ -24,6 +26,13 @@ const loginRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: 'login',
   component: LoginPage,
+  errorComponent: RouterErrorView
+})
+
+const calendarRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: 'calendar',
+  component: CalendarPage,
   errorComponent: RouterErrorView
 })
 
@@ -90,6 +99,7 @@ const settingsRoute = createRoute({
 
 const routeTree = rootRoute.addChildren([
   loginRoute,
+  calendarRoute,
   appRoute.addChildren([
     dashboardRoute,
     dialogsRoute,
@@ -103,12 +113,13 @@ const routeTree = rootRoute.addChildren([
 
 export const router = createRouter({
   routeTree,
+  basepath: APP_BASE_PATH,
   context: {
     queryClient: undefined as never
   },
   defaultPreload: 'intent',
   defaultErrorComponent: RouterErrorView,
-  defaultNotFoundComponent: () => <RouterErrorView error={new Error('Page not found')} reset={() => window.location.assign('/')} info={{ componentStack: '' }} />
+  defaultNotFoundComponent: () => <RouterErrorView error={new Error('Page not found')} reset={() => window.location.assign(appUrl('/'))} info={{ componentStack: '' }} />
 })
 
 declare module '@tanstack/react-router' {

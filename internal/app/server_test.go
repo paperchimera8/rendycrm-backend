@@ -121,6 +121,58 @@ func TestHandleAppServesStaticFilesAndRejectsMissingAssets(t *testing.T) {
 	})
 }
 
+func TestHandleAppRespectsMountedBasePath(t *testing.T) {
+	tmpDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(tmpDir, "index.html"), []byte("<html>app</html>"), 0o644); err != nil {
+		t.Fatalf("write index: %v", err)
+	}
+	assetsDir := filepath.Join(tmpDir, "assets")
+	if err := os.MkdirAll(assetsDir, 0o755); err != nil {
+		t.Fatalf("mkdir assets: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(assetsDir, "index.js"), []byte("console.log('ok')"), 0o644); err != nil {
+		t.Fatalf("write asset: %v", err)
+	}
+
+	server := &Server{cfg: Config{StaticDir: tmpDir, AppBasePath: "/app"}}
+
+	t.Run("mounted spa route falls back to index", func(t *testing.T) {
+		request := httptest.NewRequest(http.MethodGet, "/app/calendar", nil)
+		recorder := httptest.NewRecorder()
+		server.handleApp(recorder, request)
+
+		if recorder.Code != http.StatusOK {
+			t.Fatalf("expected 200, got %d", recorder.Code)
+		}
+		if body := recorder.Body.String(); body != "<html>app</html>" {
+			t.Fatalf("unexpected fallback body: %q", body)
+		}
+	})
+
+	t.Run("mounted asset is served", func(t *testing.T) {
+		request := httptest.NewRequest(http.MethodGet, "/app/assets/index.js", nil)
+		recorder := httptest.NewRecorder()
+		server.handleApp(recorder, request)
+
+		if recorder.Code != http.StatusOK {
+			t.Fatalf("expected 200, got %d", recorder.Code)
+		}
+		if body := recorder.Body.String(); body != "console.log('ok')" {
+			t.Fatalf("unexpected asset body: %q", body)
+		}
+	})
+
+	t.Run("path outside mount returns 404", func(t *testing.T) {
+		request := httptest.NewRequest(http.MethodGet, "/calendar", nil)
+		recorder := httptest.NewRecorder()
+		server.handleApp(recorder, request)
+
+		if recorder.Code != http.StatusNotFound {
+			t.Fatalf("expected 404, got %d", recorder.Code)
+		}
+	})
+}
+
 func TestServerServesAPIUnderPrefixWithoutFallingBackToSPA(t *testing.T) {
 	tmpDir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(tmpDir, "index.html"), []byte("<html>app</html>"), 0o644); err != nil {
@@ -145,6 +197,34 @@ func TestServerServesAPIUnderPrefixWithoutFallingBackToSPA(t *testing.T) {
 
 	t.Run("missing api route returns 404 instead of index", func(t *testing.T) {
 		request := httptest.NewRequest(http.MethodGet, "/api/unknown", nil)
+		recorder := httptest.NewRecorder()
+		server.serveHTTP(recorder, request)
+
+		if recorder.Code != http.StatusNotFound {
+			t.Fatalf("expected 404, got %d", recorder.Code)
+		}
+		if body := recorder.Body.String(); body == "<html>app</html>" {
+			t.Fatalf("unexpected spa fallback body for api route")
+		}
+	})
+
+	t.Run("mounted api health works under prefix", func(t *testing.T) {
+		server.cfg.AppBasePath = "/app"
+		request := httptest.NewRequest(http.MethodGet, "/app/api/health", nil)
+		recorder := httptest.NewRecorder()
+		server.serveHTTP(recorder, request)
+
+		if recorder.Code != http.StatusOK {
+			t.Fatalf("expected 200, got %d", recorder.Code)
+		}
+		if body := recorder.Body.String(); body != "{\"status\":\"ok\"}\n" {
+			t.Fatalf("unexpected body: %q", body)
+		}
+	})
+
+	t.Run("mounted missing api route returns 404 instead of index", func(t *testing.T) {
+		server.cfg.AppBasePath = "/app"
+		request := httptest.NewRequest(http.MethodGet, "/app/api/unknown", nil)
 		recorder := httptest.NewRecorder()
 		server.serveHTTP(recorder, request)
 

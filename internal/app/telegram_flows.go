@@ -189,15 +189,39 @@ func (s *Server) claimTelegramInboundDelivery(ctx context.Context, accountID str
 	return s.runtime.redis.SetNX(ctx, key, "1", telegramInboundDeliveryCooldown).Result()
 }
 
-func defaultClientBotButtons() []TelegramInlineButton {
-	return []TelegramInlineButton{
-		{Text: "Записаться", CallbackData: "client:book"},
-		{Text: "Свободные окна", CallbackData: "client:slots"},
-		{Text: "Цены", CallbackData: "client:prices"},
-		{Text: "Адрес", CallbackData: "client:address"},
-		{Text: "Связаться с человеком", CallbackData: "client:human"},
-		{Text: "Сменить мастера", CallbackData: "client:change_master"},
+func (s *Server) clientBotButtons(account ChannelAccount, chatID, workspaceID string, includeChangeMaster bool) []TelegramInlineButton {
+	buttons := make([]TelegramInlineButton, 0, 5)
+	if link, err := s.clientCalendarURL(account, chatID, workspaceID); err == nil && strings.TrimSpace(link) != "" {
+		buttons = append(buttons, TelegramInlineButton{Text: "Записаться", URL: link})
+	} else {
+		buttons = append(buttons, TelegramInlineButton{Text: "Записаться", CallbackData: "client:book"})
 	}
+	buttons = append(buttons,
+		TelegramInlineButton{Text: "Цены", CallbackData: "client:prices"},
+		TelegramInlineButton{Text: "Адрес", CallbackData: "client:address"},
+		TelegramInlineButton{Text: "Связаться с человеком", CallbackData: "client:human"},
+	)
+	if includeChangeMaster {
+		buttons = append(buttons, TelegramInlineButton{Text: "Сменить мастера", CallbackData: "client:change_master"})
+	}
+	return buttons
+}
+
+func (s *Server) sendTelegramCalendarPrompt(ctx context.Context, account ChannelAccount, chatID, workspaceID string) error {
+	link, err := s.clientCalendarURL(account, chatID, workspaceID)
+	if err != nil || strings.TrimSpace(link) == "" {
+		return s.enqueueTelegramOutbound(ctx, account, OutboundKindTelegramSendText, "", "", TelegramOutboundPayload{
+			ChatID: chatID,
+			Text:   "Не удалось открыть календарь записи. Напишите сообщение в этот чат, и мастер свяжется с вами.",
+		})
+	}
+	return s.enqueueTelegramOutbound(ctx, account, OutboundKindTelegramSendInline, "", "", TelegramOutboundPayload{
+		ChatID: chatID,
+		Text:   "Откройте календарь и выберите свободный слот. Данные обновляются автоматически.",
+		Buttons: []TelegramInlineButton{
+			{Text: "Открыть календарь", URL: link},
+		},
+	})
 }
 
 func (s *Server) promptTelegramMasterPhone(ctx context.Context, account ChannelAccount, chatID string) error {
@@ -282,8 +306,8 @@ func (s *Server) selectMasterByPhone(ctx context.Context, account ChannelAccount
 	}
 	return s.enqueueTelegramOutbound(ctx, account, OutboundKindTelegramSendInline, "", "", TelegramOutboundPayload{
 		ChatID:  chatID,
-		Text:    fmt.Sprintf("Мастер выбран: %s.\nТеперь можно написать сообщение, посмотреть слоты или записаться.", workspace.Name),
-		Buttons: defaultClientBotButtons(),
+		Text:    fmt.Sprintf("Мастер выбран: %s.\nТеперь можно открыть календарь для записи или написать сообщение.", workspace.Name),
+		Buttons: s.clientBotButtons(account, chatID, workspace.ID, true),
 	})
 }
 
@@ -398,7 +422,7 @@ func (s *Server) handleTelegramClientUpdate(ctx context.Context, account Channel
 		return s.enqueueTelegramOutbound(ctx, account, OutboundKindTelegramSendInline, "", "", TelegramOutboundPayload{
 			ChatID:  chatID,
 			Text:    "Здравствуйте!\nПомогу записаться или ответить на вопросы.",
-			Buttons: defaultClientBotButtons()[:5],
+			Buttons: s.clientBotButtons(account, chatID, account.WorkspaceID, false),
 		})
 	}
 
@@ -522,47 +546,7 @@ func (s *Server) handleTelegramClientCallback(ctx context.Context, account Chann
 	}
 	switch {
 	case data == "client:book", data == "client:slots":
-		externalMessageID := telegramCallbackExternalMessageID(update)
-		input := inboundUsecaseInput(
-			ChannelTelegram,
-			account.ID,
-			chatID,
-			externalMessageID,
-			"Есть ли свободные окна?",
-			time.Now().UTC(),
-			profile,
-		)
-		var (
-			result usecase.InboundResult
-			err    error
-		)
-		if account.AccountScope == ChannelAccountScopeGlobal {
-			result, err = s.runtime.services.Inbox.ReceiveInboundMessageForWorkspace(ctx, targetWorkspaceID, input)
-		} else {
-			result, err = s.runtime.services.Inbox.ReceiveInboundMessage(ctx, input)
-		}
-		if err != nil {
-			return err
-		}
-		log.Printf(
-			"telegram inbound bot=client stage=inbox scope=callback command=%q chat_id=%s external_message_id=%q stored=%t workspace_id=%s conversation_id=%s message_id=%s",
-			data,
-			chatID,
-			externalMessageID,
-			result.Stored,
-			result.WorkspaceID,
-			result.ConversationID,
-			result.MessageID,
-		)
-		if !result.Stored {
-			return nil
-		}
-		if conversation, _, customer, detailErr := s.runtime.repository.ConversationDetail(ctx, result.WorkspaceID, result.ConversationID); detailErr == nil {
-			_ = s.publishEvent(ctx, SSEEvent{Type: EventMessageNew, Data: Message{ID: result.MessageID, ConversationID: result.ConversationID}})
-			_ = s.publishDashboard(ctx, result.WorkspaceID)
-			s.notifyOperatorsAboutConversation(ctx, conversation, customer)
-		}
-		return nil
+		return s.sendTelegramCalendarPrompt(ctx, account, chatID, targetWorkspaceID)
 	case data == "client:prices":
 		externalMessageID := telegramCallbackExternalMessageID(update)
 		input := inboundUsecaseInput(
@@ -700,7 +684,7 @@ func (s *Server) handleTelegramClientCallback(ctx context.Context, account Chann
 			if errors.Is(err, sql.ErrNoRows) {
 				return s.enqueueTelegramOutbound(ctx, account, OutboundKindTelegramSendText, "", "", TelegramOutboundPayload{
 					ChatID: chatID,
-					Text:   "Не удалось найти активный диалог. Нажмите «Свободные окна», чтобы запросить варианты заново.",
+					Text:   "Не удалось найти активный диалог. Откройте календарь заново и выберите актуальный слот.",
 				})
 			}
 			return err
@@ -710,7 +694,7 @@ func (s *Server) handleTelegramClientCallback(ctx context.Context, account Chann
 			if errors.Is(err, sql.ErrNoRows) {
 				return s.enqueueTelegramOutbound(ctx, account, OutboundKindTelegramSendText, conversation.ID, "", TelegramOutboundPayload{
 					ChatID: chatID,
-					Text:   "Это действие уже обработано или устарело. Нажмите «Свободные окна», чтобы запросить актуальные варианты заново.",
+					Text:   "Это действие уже обработано или устарело. Откройте календарь заново и выберите актуальный слот.",
 				})
 			}
 			return err
@@ -722,14 +706,14 @@ func (s *Server) handleTelegramClientCallback(ctx context.Context, account Chann
 			_ = s.runtime.services.BotSessions.ClearSession(ctx, domain.Actor{Kind: domain.ActorCustomerBot, WorkspaceID: targetWorkspaceID}, targetWorkspaceID, string(BotSessionScopeClient), string(BotSessionActorCustomer), customer.ID)
 			return s.enqueueTelegramOutbound(ctx, account, OutboundKindTelegramSendText, conversation.ID, "", TelegramOutboundPayload{
 				ChatID: chatID,
-				Text:   "Не удалось восстановить состояние бронирования. Нажмите «Свободные окна», чтобы начать заново.",
+				Text:   "Не удалось восстановить состояние бронирования. Откройте календарь заново и выберите слот еще раз.",
 			})
 		}
 		if strings.TrimSpace(payload.BookingID) == "" {
 			_ = s.runtime.services.BotSessions.ClearSession(ctx, domain.Actor{Kind: domain.ActorCustomerBot, WorkspaceID: targetWorkspaceID}, targetWorkspaceID, string(BotSessionScopeClient), string(BotSessionActorCustomer), customer.ID)
 			return s.enqueueTelegramOutbound(ctx, account, OutboundKindTelegramSendText, conversation.ID, "", TelegramOutboundPayload{
 				ChatID: chatID,
-				Text:   "Не удалось восстановить бронирование. Нажмите «Свободные окна», чтобы выбрать время заново.",
+				Text:   "Не удалось восстановить бронирование. Откройте календарь заново и выберите время еще раз.",
 			})
 		}
 		actor := domain.Actor{Kind: domain.ActorCustomerBot, WorkspaceID: targetWorkspaceID}
@@ -755,7 +739,7 @@ func (s *Server) handleTelegramClientCallback(ctx context.Context, account Chann
 			if errors.Is(err, sql.ErrNoRows) {
 				return s.enqueueTelegramOutbound(ctx, account, OutboundKindTelegramSendText, "", "", TelegramOutboundPayload{
 					ChatID: chatID,
-					Text:   "Активное бронирование не найдено. Нажмите «Свободные окна», чтобы начать заново.",
+					Text:   "Активное бронирование не найдено. Откройте календарь заново и выберите слот еще раз.",
 				})
 			}
 			return err
@@ -772,7 +756,7 @@ func (s *Server) handleTelegramClientCallback(ctx context.Context, account Chann
 				_ = s.runtime.services.BotSessions.ClearSession(ctx, domain.Actor{Kind: domain.ActorCustomerBot, WorkspaceID: targetWorkspaceID}, targetWorkspaceID, string(BotSessionScopeClient), string(BotSessionActorCustomer), customer.ID)
 				return s.enqueueTelegramOutbound(ctx, account, OutboundKindTelegramSendText, conversation.ID, "", TelegramOutboundPayload{
 					ChatID: chatID,
-					Text:   "Не удалось восстановить состояние бронирования. Нажмите «Свободные окна», чтобы начать заново.",
+					Text:   "Не удалось восстановить состояние бронирования. Откройте календарь заново и выберите слот еще раз.",
 				})
 			}
 		} else if !errors.Is(err, sql.ErrNoRows) {

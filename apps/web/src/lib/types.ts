@@ -193,6 +193,17 @@ export type MasterProfile = {
   telegramEnabled: boolean
 }
 
+export type PublicCalendarWorkspace = {
+  id: string
+  name: string
+  timezone: string
+}
+
+export type PublicCalendarResponse = {
+  workspace: PublicCalendarWorkspace
+  items: DailySlot[]
+}
+
 export type BotConfig = {
   workspaceId: string
   autoReply: boolean

@@ -14,6 +14,7 @@ import type {
   Message,
   OperatorBotLinkCode,
   OperatorBotSettings,
+  PublicCalendarResponse,
   Review,
   SlotColorPreset,
   SlotEditorResponse,
@@ -22,11 +23,12 @@ import type {
   Slot,
   WeekSlotDay
 } from './types'
+import { appUrl, defaultApiBaseUrl, stripAppBasePath } from './basePath'
 
 const TOKEN_KEY = 'rendycrm.token'
 const runtimeApiBase = window.RUNTIME_CONFIG?.API_BASE_URL?.trim()
 const envApiBase = import.meta.env.VITE_API_BASE_URL?.trim()
-const API_BASE_URL = (runtimeApiBase || envApiBase || '/api').replace(/\/+$/, '')
+const API_BASE_URL = (runtimeApiBase || envApiBase || defaultApiBaseUrl()).replace(/\/+$/, '')
 
 export function apiUrl(path: string): string {
   if (!API_BASE_URL) return path
@@ -78,11 +80,30 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   if (!response.ok) {
     if (response.status === 401) {
       clearToken()
-      if (typeof window !== 'undefined' && !window.location.pathname.startsWith('/login')) {
-        window.location.assign('/login')
+      if (typeof window !== 'undefined' && stripAppBasePath(window.location.pathname) !== '/login') {
+        window.location.assign(appUrl('/login'))
       }
       throw new Error(data.error ?? 'Сессия истекла. Войдите снова.')
     }
+    throw new Error(data.error ?? 'Request failed')
+  }
+  return data as T
+}
+
+async function requestPublic<T>(path: string, init?: RequestInit): Promise<T> {
+  const headers = new Headers(init?.headers)
+  headers.set('Content-Type', 'application/json')
+  let response: Response
+  try {
+    response = await fetch(apiUrl(path), { ...init, headers, credentials: 'include' })
+  } catch (error) {
+    if (error instanceof Error && error.message.toLowerCase().includes('failed to fetch')) {
+      throw new Error(`Не удалось выполнить запрос ${path}. Проверьте backend и dev proxy.`)
+    }
+    throw error
+  }
+  const data = (await response.json().catch(() => ({}))) as { error?: string }
+  if (!response.ok) {
     throw new Error(data.error ?? 'Request failed')
   }
   return data as T
@@ -301,6 +322,30 @@ export async function getAvailableSlots(dateFrom: string, dateTo: string) {
   const search = new URLSearchParams({ date_from: dateFrom, date_to: dateTo })
   const data = await request<{ items?: DailySlot[] | null }>(`/slots/available?${search.toString()}`)
   return { items: asArray(data.items) }
+}
+
+export async function getPublicCalendar(token: string, dateFrom: string, dateTo: string) {
+  const search = new URLSearchParams({
+    token,
+    date_from: dateFrom,
+    date_to: dateTo
+  })
+  const data = await requestPublic<Partial<PublicCalendarResponse>>(`/public/calendar?${search.toString()}`)
+  return {
+    workspace: data.workspace ?? {
+      id: '',
+      name: '',
+      timezone: 'Europe/Moscow'
+    },
+    items: asArray(data.items)
+  }
+}
+
+export async function bookPublicCalendar(token: string, dailySlotId: string) {
+  return requestPublic<{ booking: Booking }>('/public/calendar/book', {
+    method: 'POST',
+    body: JSON.stringify({ token, dailySlotId })
+  })
 }
 
 export async function updateAvailabilityRules(rules: AvailabilityRule[]) {

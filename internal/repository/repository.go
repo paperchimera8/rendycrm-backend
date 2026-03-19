@@ -84,6 +84,25 @@ func (r *Repository) Me(ctx context.Context, userID, workspaceID string) (User, 
 	return user, workspace, nil
 }
 
+func (r *Repository) Workspace(ctx context.Context, workspaceID string) (Workspace, error) {
+	const query = `
+		SELECT id, name, COALESCE(timezone, ''), COALESCE(master_phone_raw, ''), COALESCE(master_phone_normalized, '')
+		FROM workspaces
+		WHERE id = $1
+	`
+	var workspace Workspace
+	if err := r.db.QueryRowContext(ctx, query, workspaceID).Scan(
+		&workspace.ID,
+		&workspace.Name,
+		&workspace.Timezone,
+		&workspace.MasterPhoneRaw,
+		&workspace.MasterPhoneNormalized,
+	); err != nil {
+		return Workspace{}, err
+	}
+	return workspace, nil
+}
+
 func (r *Repository) Dashboard(ctx context.Context, workspaceID string) (Dashboard, error) {
 	now := time.Now().UTC()
 	todayStart := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC)

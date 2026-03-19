@@ -29,10 +29,14 @@ services:
     build:
       context: ..
       dockerfile: Dockerfile
+      args:
+        VITE_APP_BASE_PATH: ${VITE_APP_BASE_PATH:-/app}
+        VITE_API_BASE_URL: ${VITE_API_BASE_URL:-/app/api}
     ports:
       - "${API_PORT:-3000}:3000"
     environment:
       PORT: "3000"
+      APP_BASE_PATH: ${APP_BASE_PATH:-/app}
       STATIC_DIR: ""
       POSTGRES_DSN: postgres://postgres:${POSTGRES_PASSWORD:-postgres}@postgres:5432/rendycrm?sslmode=disable
       REDIS_ADDR: redis:6379
@@ -51,12 +55,14 @@ services:
       context: ..
       dockerfile: apps/web/Dockerfile
       args:
-        VITE_API_BASE_URL: ${VITE_API_BASE_URL:-/api}
+        VITE_APP_BASE_PATH: ${VITE_APP_BASE_PATH:-/app}
+        VITE_API_BASE_URL: ${VITE_API_BASE_URL:-/app/api}
     ports:
       - "${WEB_PORT:-8081}:${NGINX_PORT:-8080}"
     environment:
       NGINX_PORT: ${NGINX_PORT:-8080}
-      API_BASE_URL: ${API_BASE_URL:-/api}
+      APP_BASE_PATH: ${APP_BASE_PATH:-/app}
+      API_BASE_URL: ${API_BASE_URL:-/app/api}
       API_UPSTREAM: ${API_UPSTREAM:-http://api:3000}
     depends_on:
       api:
