@@ -18,6 +18,23 @@ import (
 // dispatcher from claiming and re-sending an in-flight outbound message.
 const outboundDispatchCooldown = 3 * time.Minute
 
+func telegramInlineKeyboardRows(buttons []TelegramInlineButton) [][]tgapi.InlineKeyboardButton {
+	rows := make([][]tgapi.InlineKeyboardButton, 0, len(buttons))
+	for _, button := range buttons {
+		if strings.TrimSpace(button.Text) == "" {
+			continue
+		}
+		if url := strings.TrimSpace(button.URL); url != "" {
+			rows = append(rows, []tgapi.InlineKeyboardButton{{Text: button.Text, URL: url}})
+			continue
+		}
+		if callbackData := strings.TrimSpace(button.CallbackData); callbackData != "" {
+			rows = append(rows, []tgapi.InlineKeyboardButton{{Text: button.Text, CallbackData: callbackData}})
+		}
+	}
+	return rows
+}
+
 func (s *Server) processOutboundMessages(ctx context.Context) {
 	for {
 		select {
@@ -99,20 +116,14 @@ func (s *Server) dispatchOutboundMessage(ctx context.Context, item OutboundMessa
 		}
 		providerMessageID = fmt.Sprintf("%d", res.MessageID)
 	case OutboundKindTelegramSendInline:
-		rows := make([][]tgapi.InlineKeyboardButton, 0, len(payload.Buttons))
-		for _, button := range payload.Buttons {
-			rows = append(rows, []tgapi.InlineKeyboardButton{{Text: button.Text, CallbackData: button.CallbackData}})
-		}
+		rows := telegramInlineKeyboardRows(payload.Buttons)
 		res, err := s.runtime.telegram.SendInline(ctx, token, payload.ChatID, payload.Text, rows)
 		if err != nil {
 			return s.retryOutboundMessage(ctx, item, err)
 		}
 		providerMessageID = fmt.Sprintf("%d", res.MessageID)
 	case OutboundKindTelegramEditInline:
-		rows := make([][]tgapi.InlineKeyboardButton, 0, len(payload.Buttons))
-		for _, button := range payload.Buttons {
-			rows = append(rows, []tgapi.InlineKeyboardButton{{Text: button.Text, CallbackData: button.CallbackData}})
-		}
+		rows := telegramInlineKeyboardRows(payload.Buttons)
 		res, err := s.runtime.telegram.EditInline(ctx, token, tgapi.EditMessageTextRequest{
 			ChatID:      payload.ChatID,
 			MessageID:   payload.MessageID,

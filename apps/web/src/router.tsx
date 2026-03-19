@@ -9,6 +9,7 @@ import { AvailabilityPage } from './routes/AvailabilityPage'
 import { ReviewsPage } from './routes/ReviewsPage'
 import { AnalyticsPage } from './routes/AnalyticsPage'
 import { SettingsPage } from './routes/SettingsPage'
+import { CalendarPage } from './routes/CalendarPage'
 import { APP_BASE_PATH, appUrl, stripAppBasePath } from './lib/basePath'
 import { getToken } from './lib/api'
 
@@ -30,6 +31,13 @@ const loginRoute = createRoute({
     }
   },
   component: LoginPage,
+  errorComponent: RouterErrorView
+})
+
+const calendarRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: 'calendar',
+  component: CalendarPage,
   errorComponent: RouterErrorView
 })
 
@@ -105,6 +113,7 @@ const settingsRoute = createRoute({
 
 const routeTree = rootRoute.addChildren([
   loginRoute,
+  calendarRoute,
   appRoute.addChildren([
     appIndexRoute,
     dashboardRoute,

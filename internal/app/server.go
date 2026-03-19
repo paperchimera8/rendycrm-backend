@@ -81,6 +81,8 @@ func (s *Server) routes() {
 	s.apiMux.HandleFunc("/health", func(w http.ResponseWriter, _ *http.Request) {
 		s.writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 	})
+	s.apiMux.HandleFunc("/public/calendar", s.handlePublicCalendar)
+	s.apiMux.HandleFunc("/public/calendar/book", s.handlePublicCalendarBooking)
 	s.apiMux.HandleFunc("/auth/login", s.handleLogin)
 	s.apiMux.HandleFunc("/auth/logout", s.requireAuth(s.handleLogout))
 	s.apiMux.HandleFunc("/auth/me", s.requireAuth(s.handleMe))

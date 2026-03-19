@@ -233,8 +233,88 @@ describe("client engine", () => {
         expect.objectContaining({
           type: "reply",
           text: expect.stringContaining("Мастер выбран: Smoke Workspace"),
+          buttons: expect.arrayContaining([
+            expect.objectContaining({
+              text: "Записаться",
+              action: "client:open_calendar",
+            }),
+          ]),
         }),
       ]),
+    );
+  });
+
+  it("opens calendar reply for booking action text", async () => {
+    const result = await handleClientEvent(
+      {
+        ...createClientSession(),
+        route: {
+          kind: "ready",
+          workspaceId: "ws_smoke",
+          workspaceName: "Smoke Workspace",
+          masterPhone: "79991112233",
+        },
+      },
+      {
+        type: "message",
+        eventId: "evt-open-calendar-text",
+        text: "записаться",
+        now,
+      },
+      {
+        ...globalContext,
+        dedupStore: new InMemoryDedupStore(),
+      },
+    );
+
+    expect(result.effects).toContainEqual(
+      expect.objectContaining({
+        type: "reply",
+        text: "Откройте календарь и выберите удобный свободный слот.",
+        buttons: [
+          {
+            text: "Открыть календарь",
+            action: "client:open_calendar",
+          },
+        ],
+      }),
+    );
+  });
+
+  it("redirects legacy free-slots callback to calendar", async () => {
+    const result = await handleClientEvent(
+      {
+        ...createClientSession(),
+        route: {
+          kind: "ready",
+          workspaceId: "ws_smoke",
+          workspaceName: "Smoke Workspace",
+          masterPhone: "79991112233",
+        },
+      },
+      {
+        type: "callback",
+        eventId: "evt-open-calendar-legacy-slots",
+        data: "client:slots",
+        now,
+      },
+      {
+        ...globalContext,
+        dedupStore: new InMemoryDedupStore(),
+      },
+    );
+
+    expect(result.effects).toContainEqual(
+      expect.objectContaining({
+        type: "reply",
+        text: "Откройте календарь и выберите удобный свободный слот.",
+        buttons: [
+          {
+            text: "Открыть календарь",
+            action: "client:open_calendar",
+          },
+        ],
+      }),
     );
   });
 
@@ -560,7 +640,13 @@ describe("client engine", () => {
     expect(result.effects).toContainEqual(
       expect.objectContaining({
         type: "reply",
-        text: "Не удалось найти незавершённую запись. Запросите свободные окна заново.",
+        text: "Не удалось найти незавершённую запись. Откройте календарь заново.",
+        buttons: [
+          {
+            text: "Открыть календарь",
+            action: "client:open_calendar",
+          },
+        ],
       }),
     );
   });
@@ -634,7 +720,13 @@ describe("client engine", () => {
     expect(result.effects).toContainEqual(
       expect.objectContaining({
         type: "reply",
-        text: "Этот слот уже недоступен. Запросите свободные окна ещё раз.",
+        text: "Этот слот уже недоступен. Откройте календарь и выберите другое время.",
+        buttons: [
+          {
+            text: "Открыть календарь",
+            action: "client:open_calendar",
+          },
+        ],
       }),
     );
   });

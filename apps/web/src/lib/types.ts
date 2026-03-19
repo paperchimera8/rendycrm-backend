@@ -195,6 +195,17 @@ export type MasterProfile = {
   clientBotDeepLink: string
 }
 
+export type PublicCalendarWorkspace = {
+  id: string
+  name: string
+  timezone: string
+}
+
+export type PublicCalendarResponse = {
+  workspace: PublicCalendarWorkspace
+  items: DailySlot[]
+}
+
 export type BotConfig = {
   workspaceId: string
   autoReply: boolean

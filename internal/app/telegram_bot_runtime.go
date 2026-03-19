@@ -916,7 +916,7 @@ func (s *Server) applyBotEngineClientTransition(ctx context.Context, account Cha
 func (s *Server) applyBotEngineClientEffect(ctx context.Context, account ChannelAccount, inbound telegramClientInbound, state botEngineClientSession, effect botEngineEffect) error {
 	switch effect.Type {
 	case "reply":
-		return s.enqueueBotEngineReply(ctx, account, inbound.chatID, effect, inbound.messageID, inbound.callbackID)
+		return s.enqueueBotEngineReply(ctx, account, inbound.chatID, &state, effect, inbound.messageID, inbound.callbackID)
 	case "configuration.error":
 		log.Printf("telegram bot runtime configuration error bot=%s account_id=%s message=%q", effect.Bot, account.ID, effect.Message)
 		return nil
@@ -981,13 +981,7 @@ func (s *Server) applyBotEngineClientBookingPending(ctx context.Context, account
 	})
 	if err != nil {
 		if strings.Contains(err.Error(), "slot unavailable") {
-			return s.enqueueTelegramOutbound(ctx, account, OutboundKindTelegramSendInline, conversation.ID, "", TelegramOutboundPayload{
-				ChatID: inbound.chatID,
-				Text:   "Этот слот уже недоступен. Запросите свободные окна ещё раз.",
-				Buttons: []TelegramInlineButton{
-					{Text: "Свободные окна", CallbackData: "client:slots"},
-				},
-			}, inbound.messageID, inbound.callbackID)
+			return s.enqueueTelegramCalendarReply(ctx, account, inbound.chatID, workspaceID, conversation.ID, "Этот слот уже недоступен. Откройте календарь и выберите другое время.", inbound.messageID, inbound.callbackID)
 		}
 		return err
 	}
@@ -1054,13 +1048,7 @@ func (s *Server) applyBotEngineClientBookingConfirmed(ctx context.Context, accou
 	actor := domain.Actor{Kind: domain.ActorCustomerBot, WorkspaceID: workspaceID}
 	if _, err := s.runtime.services.Bookings.ConfirmBooking(ctx, actor, workspaceID, payload.BookingID, 0, firstNonEmptyString(payload.ConversationID, conversation.ID)); err != nil {
 		if strings.Contains(err.Error(), "slot unavailable") {
-			return s.enqueueTelegramOutbound(ctx, account, OutboundKindTelegramSendInline, conversation.ID, "", TelegramOutboundPayload{
-				ChatID: inbound.chatID,
-				Text:   "Слот уже недоступен. Запросите свободные окна заново.",
-				Buttons: []TelegramInlineButton{
-					{Text: "Свободные окна", CallbackData: "client:slots"},
-				},
-			}, inbound.messageID, inbound.callbackID)
+			return s.enqueueTelegramCalendarReply(ctx, account, inbound.chatID, workspaceID, conversation.ID, "Слот уже недоступен. Откройте календарь и выберите другое время.", inbound.messageID, inbound.callbackID)
 		}
 		return err
 	}
@@ -1188,26 +1176,66 @@ func (s *Server) ensureTelegramClientConversation(ctx context.Context, account C
 	return s.runtime.repository.ConversationByExternalChat(ctx, workspaceID, ChannelTelegram, inbound.chatID)
 }
 
-func (s *Server) enqueueBotEngineReply(ctx context.Context, account ChannelAccount, chatID string, effect botEngineEffect, inboundMessageID int64, callbackID string) error {
-	kind := OutboundKindTelegramSendText
+func (s *Server) enqueueBotEngineReply(ctx context.Context, account ChannelAccount, chatID string, state *botEngineClientSession, effect botEngineEffect, inboundMessageID int64, callbackID string) error {
 	payload := TelegramOutboundPayload{
-		ChatID: chatID,
-		Text:   effect.Text,
+		ChatID:  chatID,
+		Text:    effect.Text,
+		Buttons: s.buildBotEngineReplyButtons(account, chatID, state, effect.Buttons),
 	}
-	if len(effect.Buttons) > 0 {
+	kind := OutboundKindTelegramSendText
+	if len(payload.Buttons) > 0 {
 		kind = OutboundKindTelegramSendInline
-		payload.Buttons = make([]TelegramInlineButton, 0, len(effect.Buttons))
-		for _, button := range effect.Buttons {
-			if strings.TrimSpace(button.Text) == "" || strings.TrimSpace(button.Action) == "" {
-				continue
-			}
-			payload.Buttons = append(payload.Buttons, TelegramInlineButton{
-				Text:         button.Text,
-				CallbackData: button.Action,
-			})
-		}
 	}
 	return s.enqueueTelegramOutbound(ctx, account, kind, "", "", payload, inboundMessageID, callbackID)
+}
+
+func (s *Server) buildBotEngineReplyButtons(account ChannelAccount, chatID string, state *botEngineClientSession, buttons []botEngineButton) []TelegramInlineButton {
+	workspaceID := strings.TrimSpace(account.WorkspaceID)
+	if state != nil && state.Route.Kind == "ready" && strings.TrimSpace(state.Route.WorkspaceID) != "" {
+		workspaceID = strings.TrimSpace(state.Route.WorkspaceID)
+	}
+	result := make([]TelegramInlineButton, 0, len(buttons))
+	for _, button := range buttons {
+		text := strings.TrimSpace(button.Text)
+		action := strings.TrimSpace(button.Action)
+		if text == "" || action == "" {
+			continue
+		}
+		if action == "client:open_calendar" {
+			if workspaceID == "" {
+				continue
+			}
+			link, err := s.clientCalendarURL(account, chatID, workspaceID)
+			if err != nil {
+				log.Printf("telegram calendar url build failed account_id=%s workspace_id=%s chat_id=%s error=%v", account.ID, workspaceID, chatID, err)
+				continue
+			}
+			result = append(result, TelegramInlineButton{Text: text, URL: link})
+			continue
+		}
+		result = append(result, TelegramInlineButton{Text: text, CallbackData: action})
+	}
+	return result
+}
+
+func (s *Server) enqueueTelegramCalendarReply(ctx context.Context, account ChannelAccount, chatID, workspaceID, conversationID, text string, inboundMessageID int64, callbackID string) error {
+	payload := TelegramOutboundPayload{
+		ChatID: chatID,
+		Text:   text,
+	}
+	if strings.TrimSpace(workspaceID) != "" {
+		link, err := s.clientCalendarURL(account, chatID, workspaceID)
+		if err != nil {
+			log.Printf("telegram calendar reply url build failed account_id=%s workspace_id=%s chat_id=%s error=%v", account.ID, workspaceID, chatID, err)
+		} else {
+			payload.Buttons = []TelegramInlineButton{{Text: "Открыть календарь", URL: link}}
+		}
+	}
+	kind := OutboundKindTelegramSendText
+	if len(payload.Buttons) > 0 {
+		kind = OutboundKindTelegramSendInline
+	}
+	return s.enqueueTelegramOutbound(ctx, account, kind, conversationID, "", payload, inboundMessageID, callbackID)
 }
 
 func (s *Server) buildBotEngineOperatorContext(ctx context.Context, binding OperatorBotBinding, linkBindings []botEngineOperatorLinkBinding) (botEngineOperatorContext, *botEngineOperatorWorkspace, error) {
@@ -1456,7 +1484,7 @@ func (s *Server) applyBotEngineOperatorTransition(ctx context.Context, account C
 func (s *Server) applyBotEngineOperatorEffect(ctx context.Context, account ChannelAccount, snapshot botRuntimeOperatorSnap, binding *OperatorBotBinding, effect botEngineEffect) error {
 	switch effect.Type {
 	case "reply":
-		return s.enqueueBotEngineReply(ctx, account, snapshot.ChatID, effect, snapshot.MessageID, snapshot.CallbackID)
+		return s.enqueueBotEngineReply(ctx, account, snapshot.ChatID, nil, effect, snapshot.MessageID, snapshot.CallbackID)
 	case "configuration.error":
 		log.Printf("telegram bot runtime configuration error bot=%s workspace_id=%s message=%q", effect.Bot, effect.WorkspaceID, effect.Message)
 		return nil

@@ -452,6 +452,7 @@ type OutboundMessage struct {
 type TelegramInlineButton struct {
 	Text         string `json:"text"`
 	CallbackData string `json:"callbackData"`
+	URL          string `json:"url,omitempty"`
 }
 
 type TelegramOutboundPayload struct {

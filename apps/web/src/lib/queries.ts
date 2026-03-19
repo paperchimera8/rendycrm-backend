@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   assignConversation,
   blockDaySlot,
+  bookPublicCalendar,
   cancelBooking,
   completeBooking,
   createDaySlot,
@@ -25,6 +26,7 @@ import {
   getMasterProfile,
   getMe,
   getOperatorBotSettings,
+  getPublicCalendar,
   getReviews,
   getWeekSlots,
   reopenConversation,
@@ -83,6 +85,15 @@ export function useWeekSlots(date: string) {
 
 export function useAvailableSlots(dateFrom: string, dateTo: string) {
   return useQuery({ queryKey: ['available-slots', dateFrom, dateTo], queryFn: () => getAvailableSlots(dateFrom, dateTo) })
+}
+
+export function usePublicCalendar(token: string, dateFrom: string, dateTo: string) {
+  return useQuery({
+    queryKey: ['public-calendar', token, dateFrom, dateTo],
+    queryFn: () => getPublicCalendar(token, dateFrom, dateTo),
+    enabled: Boolean(token),
+    refetchInterval: 30_000
+  })
 }
 
 export function useBookings(status = 'all') {
@@ -164,6 +175,13 @@ export function useCreateBookingMutation() {
       notes: string
       conversationId?: string
     }) => createBooking({ customerId, dailySlotId, startsAt, endsAt, amount, status, notes, conversationId })
+  })
+}
+
+export function useBookPublicCalendarMutation() {
+  return useMutation({
+    mutationFn: ({ token, dailySlotId }: { token: string; dailySlotId: string }) =>
+      bookPublicCalendar(token, dailySlotId)
   })
 }
 

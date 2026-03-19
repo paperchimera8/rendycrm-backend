@@ -22,7 +22,7 @@ const TELEGRAM_DISABLED_TEXT =
 const ADDRESS_TEXT =
   "Адрес уточнит оператор в этом чате. Если адрес уже есть в FAQ, добавьте его туда для автоответа.";
 const BOOKING_RECOVERY_TEXT =
-  "Не удалось найти незавершённую запись. Запросите свободные окна заново.";
+  "Не удалось найти незавершённую запись. Откройте календарь заново.";
 const WORKSPACE_CONFIGURATION_ERROR =
   "Workspace bot настроен не полностью. Проверьте fixed workspace configuration.";
 
@@ -104,12 +104,12 @@ const RETRY_OR_HUMAN_BUTTONS: readonly BotButton[] = [
 ];
 
 const BOOKING_RECOVERY_BUTTONS: readonly BotButton[] = [
-  { text: "Свободные окна", action: "client:slots" },
+  { text: "Открыть календарь", action: "client:open_calendar" },
 ];
 
 const CLIENT_TEXT_ACTIONS = new Map<string, string>([
-  ["записаться", "client:book"],
-  ["свободные окна", "client:slots"],
+  ["записаться", "client:open_calendar"],
+  ["свободные окна", "client:open_calendar"],
   ["цены", "client:prices"],
   ["адрес", "client:address"],
   ["связаться с человеком", "client:human"],
@@ -274,10 +274,10 @@ function handleClientAction(
   const route = readySessionResult.route;
 
   switch (action) {
+    case "client:open_calendar":
     case "client:book":
-      return showAvailableSlots(readySession, route, context, true);
     case "client:slots":
-      return showAvailableSlots(readySession, route, context, false);
+      return openCalendarReply(readySession);
     case "client:prices":
       return {
         state: readySession,
@@ -408,7 +408,7 @@ function selectMasterByPhone(
         masterPhone: master.masterPhone,
       },
       reply(
-        `Мастер выбран: ${master.workspaceName}.\nТеперь можно написать сообщение, посмотреть слоты или записаться.`,
+        `Мастер выбран: ${master.workspaceName}.\nТеперь можно написать сообщение или записаться через календарь.`,
         buildClientMenuButtons(context.mode),
       ),
     ],
@@ -430,7 +430,7 @@ function resumeSelectedMaster(
     },
     effects: [
       reply(
-        `Мастер выбран: ${session.route.workspaceName}.\nТеперь можно написать сообщение, посмотреть слоты или записаться.`,
+        `Мастер выбран: ${session.route.workspaceName}.\nТеперь можно написать сообщение или записаться через календарь.`,
         buildClientMenuButtons(context.mode),
       ),
     ],
@@ -479,7 +479,7 @@ function activateFixedWorkspace(
       },
       reply(
         welcome
-          ? `Здравствуйте!\nБот подключён к ${fixedWorkspace.workspaceName}.\nМожно написать сообщение, посмотреть слоты или записаться.`
+          ? `Здравствуйте!\nБот подключён к ${fixedWorkspace.workspaceName}.\nМожно написать сообщение или записаться через календарь.`
           : `Бот уже привязан к ${fixedWorkspace.workspaceName}.`,
         buildClientMenuButtons(context.mode),
       ),
@@ -518,6 +518,19 @@ function showAvailableSlots(
   return { state: session, effects };
 }
 
+function openCalendarReply(
+  session: ClientSession,
+): Transition<ClientSession> {
+  return {
+    state: session,
+    effects: [
+      reply("Откройте календарь и выберите удобный свободный слот.", [
+        { text: "Открыть календарь", action: "client:open_calendar" },
+      ]),
+    ],
+  };
+}
+
 function startBookingConfirmation(
   session: ClientSession,
   route: Extract<ClientRouteState, { kind: "ready" }>,
@@ -533,7 +546,7 @@ function startBookingConfirmation(
       state: session,
       effects: [
         reply(
-          "Этот слот уже недоступен. Запросите свободные окна ещё раз.",
+          "Этот слот уже недоступен. Откройте календарь и выберите другое время.",
           BOOKING_RECOVERY_BUTTONS,
         ),
       ],
@@ -757,8 +770,7 @@ function buildClientMenuButtons(
   mode: ClientContext["mode"],
 ): readonly BotButton[] {
   const buttons: BotButton[] = [
-    { text: "Записаться", action: "client:book" },
-    { text: "Свободные окна", action: "client:slots" },
+    { text: "Записаться", action: "client:open_calendar" },
     { text: "Цены", action: "client:prices" },
     { text: "Адрес", action: "client:address" },
     { text: "Связаться с человеком", action: "client:human" },
