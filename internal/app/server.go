@@ -28,10 +28,11 @@ type AuthContext struct {
 const sessionCookieName = "rendycrm_session"
 
 type Server struct {
-	cfg     Config
-	runtime *Runtime
-	mux     *http.ServeMux
-	apiMux  *http.ServeMux
+	cfg          Config
+	runtime      *Runtime
+	mux          *http.ServeMux
+	apiMux       *http.ServeMux
+	outboundWake chan struct{}
 }
 
 func NewServer(ctx context.Context, cfg Config) (*Server, error) {
@@ -39,7 +40,7 @@ func NewServer(ctx context.Context, cfg Config) (*Server, error) {
 	if err != nil {
 		return nil, err
 	}
-	server := &Server{cfg: cfg, runtime: runtime, mux: http.NewServeMux(), apiMux: http.NewServeMux()}
+	server := &Server{cfg: cfg, runtime: runtime, mux: http.NewServeMux(), apiMux: http.NewServeMux(), outboundWake: make(chan struct{}, 1)}
 	server.routes()
 	server.startWorker(ctx)
 	return server, nil

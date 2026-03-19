@@ -29,7 +29,12 @@ func (s *Server) processOutboundMessages(ctx context.Context) {
 		item, err := s.runtime.repository.ClaimNextOutboundMessage(ctx)
 		if err != nil {
 			if errors.Is(err, sql.ErrNoRows) {
-				time.Sleep(500 * time.Millisecond)
+				select {
+				case <-s.outboundWake:
+				case <-time.After(500 * time.Millisecond):
+				case <-ctx.Done():
+					return
+				}
 				continue
 			}
 			log.Printf("outbound claim error: %v", err)

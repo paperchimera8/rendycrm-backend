@@ -87,6 +87,11 @@ func NewAPIClient(baseURL string) *APIClient {
 		baseURL: baseURL,
 		httpClient: &http.Client{
 			Timeout: 10 * time.Second,
+			Transport: &http.Transport{
+				MaxIdleConnsPerHost: 20,
+				IdleConnTimeout:     90 * time.Second,
+				DisableCompression:  true,
+			},
 		},
 	}
 }

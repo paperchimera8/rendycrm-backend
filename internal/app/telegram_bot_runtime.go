@@ -1635,6 +1635,12 @@ func (s *Server) enqueueTelegramOutbound(ctx context.Context, account ChannelAcc
 		MessageID:        messageID,
 		Kind:             kind,
 	}, payload)
+	if err == nil {
+		select {
+		case s.outboundWake <- struct{}{}:
+		default:
+		}
+	}
 	return err
 }
 
