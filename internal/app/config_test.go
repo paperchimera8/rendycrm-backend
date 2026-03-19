@@ -42,10 +42,14 @@ func TestRedisConfigFromComponentsIncludesUsername(t *testing.T) {
 
 func TestLoadConfigReadsBotEngineBaseURL(t *testing.T) {
 	t.Setenv("BOT_ENGINE_BASE_URL", " http://bot-engine:3100/ ")
+	t.Setenv("BOT_ENGINE_ENABLED", "true")
 
 	cfg := LoadConfig()
 
 	if cfg.BotEngineBaseURL != "http://bot-engine:3100/" {
 		t.Fatalf("unexpected bot engine base url: %q", cfg.BotEngineBaseURL)
+	}
+	if !cfg.BotEngineEnabled {
+		t.Fatal("expected bot engine to be enabled")
 	}
 }

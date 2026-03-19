@@ -41,11 +41,13 @@ func NewServer(ctx context.Context, cfg Config) (*Server, error) {
 		return nil, err
 	}
 	server := &Server{
-		cfg:       cfg,
-		runtime:   runtime,
-		botEngine: newBotEngineClient(cfg.BotEngineBaseURL),
-		mux:       http.NewServeMux(),
-		apiMux:    http.NewServeMux(),
+		cfg:     cfg,
+		runtime: runtime,
+		mux:     http.NewServeMux(),
+		apiMux:  http.NewServeMux(),
+	}
+	if cfg.BotEngineEnabled {
+		server.botEngine = newBotEngineClient(cfg.BotEngineBaseURL)
 	}
 	server.routes()
 	server.startWorker(ctx)
