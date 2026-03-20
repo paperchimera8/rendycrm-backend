@@ -3,6 +3,7 @@
 Demo operator center with persistent runtime:
 
 - Go backend with REST + Redis-backed SSE
+- TypeScript bot runtime for Telegram webhook ingress and deduplication
 - React/TypeScript/Vite SPA
 - PostgreSQL as source of truth
 - Redis for sessions, events, and demo jobs
@@ -29,6 +30,7 @@ The runtime topology is:
 - `web` proxies `/api/*` to `api`
 - `postgres` is used only by `api`
 - `redis` is used only by `api`
+- `bot-runtime` accepts Telegram webhooks and forwards validated updates to the Go API internal bot runtime
 
 Start everything:
 
@@ -49,6 +51,8 @@ Main env knobs for compose:
 - `NGINX_PORT` — container listen port for frontend nginx, default `8080`
 - `API_BASE_URL` — browser-visible API base, default `/api`
 - `API_UPSTREAM` — nginx upstream inside compose, default `http://api:3000`
+- `BOT_RUNTIME_BASE_URL` — Go API target for Telegram webhook proxying, default `http://bot-runtime:3100`
+- `BOT_RUNTIME_INTERNAL_SECRET` — shared secret between Go API and TS bot runtime
 
 ## Seed credentials
 
@@ -66,6 +70,8 @@ Main env knobs for compose:
 
 - `api` connects to PostgreSQL via `postgres:5432`
 - `api` connects to Redis via `redis:6379`
+- `api` proxies Telegram webhook ingress to `bot-runtime` when `BOT_RUNTIME_BASE_URL` is configured
+- `bot-runtime` forwards deduplicated Telegram updates to `api` internal bot-runtime endpoints
 - `web` listens on its own port and reverse-proxies `/api/*` to `api`
 - the browser never talks to PostgreSQL or Redis directly
 - PostgreSQL data is stored in the `postgres_data` volume

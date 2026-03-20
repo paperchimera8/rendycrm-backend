@@ -103,28 +103,54 @@ app.get("/auth/me", authMiddleware, (req: AuthenticatedRequest, res) => {
   });
 });
 
-app.post("/webhooks/telegram/client/:workspace/:secret", asyncHandler(async (req, res) => {
+app.post("/webhooks/telegram/client/:channelAccountId/:secret", asyncHandler(async (req, res) => {
+  const update = parseTelegramUpdate(req.body);
+  if (botRuntimeProxyModeEnabled()) {
+    if (!authorizeBotRuntimeProxyRequest(req, res)) {
+      return;
+    }
+    const dedupKey = `client:${req.params.channelAccountId}:${update.update_id}`;
+    const handled = deduplicator.claim(dedupKey);
+    res.json({ ok: true, handled, accepted: true });
+    if (!handled) {
+      return;
+    }
+    void forwardClientUpdate(update, req.params.channelAccountId, req.params.secret).catch((error: unknown) => {
+      console.error("client bot runtime forward failed", error);
+    });
+    return;
+  }
   if (config.clientWebhookSecret && req.params.secret !== config.clientWebhookSecret) {
     res.status(401).json({ error: "invalid webhook secret" });
     return;
   }
-
-  const update = parseTelegramUpdate(req.body);
   const bot = requireBot(config.clientBotToken, "TELEGRAM_CLIENT_BOT_TOKEN");
-  const handled = await handleClientUpdate(bot, update, req.params.workspace);
+  const handled = await handleClientUpdate(bot, update, req.params.channelAccountId);
   res.json({ ok: true, handled });
 }));
 
 app.post("/webhooks/telegram/operator", asyncHandler(async (req, res) => {
-  if (config.operatorWebhookSecret) {
-    const secret = req.header("X-Telegram-Bot-Api-Secret-Token")?.trim() ?? "";
-    if (secret !== config.operatorWebhookSecret) {
-      res.status(401).json({ error: "invalid operator webhook secret" });
+  const secret = req.header("X-Telegram-Bot-Api-Secret-Token")?.trim() ?? "";
+  const update = parseTelegramUpdate(req.body);
+  if (botRuntimeProxyModeEnabled()) {
+    if (!authorizeBotRuntimeProxyRequest(req, res)) {
       return;
     }
+    const dedupKey = `operator:${secret}:${update.update_id}`;
+    const handled = deduplicator.claim(dedupKey);
+    res.json({ ok: true, handled, accepted: true });
+    if (!handled) {
+      return;
+    }
+    void forwardOperatorUpdate(update, secret).catch((error: unknown) => {
+      console.error("operator bot runtime forward failed", error);
+    });
+    return;
   }
-
-  const update = parseTelegramUpdate(req.body);
+  if (config.operatorWebhookSecret && secret !== config.operatorWebhookSecret) {
+    res.status(401).json({ error: "invalid operator webhook secret" });
+    return;
+  }
   const bot = requireBot(config.operatorBotToken, "TELEGRAM_OPERATOR_BOT_TOKEN");
   const handled = await handleOperatorUpdate(bot, update);
   res.json({ ok: true, handled });
@@ -280,6 +306,61 @@ function requireBot(token: string, envName: string): TelegramBotApi {
     throw new Error(`${envName} is not configured`);
   }
   return new TelegramBotApi(token, config.telegramApiBaseUrl);
+}
+
+function botRuntimeProxyModeEnabled(): boolean {
+  return config.goApiBaseUrl.trim() !== "";
+}
+
+function authorizeBotRuntimeProxyRequest(req: Request, res: Response): boolean {
+  if (!botRuntimeProxyModeEnabled()) {
+    return true;
+  }
+  const provided = req.header("X-Bot-Runtime-Secret")?.trim() ?? "";
+  if (provided === "" || provided !== config.botRuntimeInternalSecret) {
+    res.status(401).json({ error: "invalid bot runtime secret" });
+    return false;
+  }
+  return true;
+}
+
+async function forwardClientUpdate(
+  update: TelegramUpdate,
+  channelAccountId: string,
+  secret: string,
+): Promise<void> {
+  await postGoJSON(
+    `/internal/bot-runtime/telegram/client/${encodeURIComponent(channelAccountId)}/${encodeURIComponent(secret)}`,
+    update,
+  );
+}
+
+async function forwardOperatorUpdate(update: TelegramUpdate, operatorSecret: string): Promise<void> {
+  await postGoJSON("/internal/bot-runtime/telegram/operator", update, {
+    "X-Telegram-Bot-Api-Secret-Token": operatorSecret,
+  });
+}
+
+async function postGoJSON(
+  path: string,
+  payload: unknown,
+  extraHeaders: Record<string, string> = {},
+): Promise<void> {
+  const response = await fetch(`${config.goApiBaseUrl}${path}`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      "X-Bot-Runtime-Secret": config.botRuntimeInternalSecret,
+      ...extraHeaders,
+    },
+    body: JSON.stringify(payload),
+    signal: AbortSignal.timeout(20_000),
+  });
+  if (!response.ok) {
+    const body = await response.text().catch(() => "");
+    const suffix = body.trim() !== "" ? `: ${body.trim()}` : "";
+    throw new Error(`go bot runtime request failed with HTTP ${response.status}${suffix}`);
+  }
 }
 
 async function handleClientUpdate(bot: TelegramBotApi, update: TelegramUpdate, workspace: string): Promise<boolean> {

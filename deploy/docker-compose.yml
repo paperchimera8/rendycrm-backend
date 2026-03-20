@@ -1,28 +1,39 @@
 services:
   postgres:
     image: postgres:16
+    container_name: rendycrm-postgres
     environment:
       POSTGRES_DB: rendycrm
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-    ports:
-      - "${POSTGRES_PORT:-55432}:5432"
+    networks:
+      rendycrm:
+        ipv4_address: 172.25.0.2
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
     restart: unless-stopped
 
   redis:
     image: redis:7
-    volumes:
-      - redis_data:/data
-    ports:
-      - "${REDIS_PORT:-56379}:6379"
+    container_name: rendycrm-redis
+    networks:
+      rendycrm:
+        ipv4_address: 172.25.0.3
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
     restart: unless-stopped
 
   api:
     build:
       context: ..
       dockerfile: Dockerfile
+    container_name: rendycrm-api
     ports:
       - "${PORT:-8080}:8080"
     environment:
@@ -30,13 +41,39 @@ services:
       POSTGRES_DSN: postgres://postgres:${POSTGRES_PASSWORD:-postgres}@postgres:5432/rendycrm?sslmode=disable
       REDIS_ADDR: redis:6379
       PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-http://localhost:8080}
+      BOT_RUNTIME_BASE_URL: ${BOT_RUNTIME_BASE_URL:-http://bot-runtime:3100}
+      BOT_RUNTIME_INTERNAL_SECRET: ${BOT_RUNTIME_INTERNAL_SECRET:-change-me-bot-runtime}
       APP_ENCRYPTION_SECRET: ${APP_ENCRYPTION_SECRET:-change-me-in-production}
-      ENABLE_DEMO_SEED: ${ENABLE_DEMO_SEED:-true}
+      ENABLE_DEMO_SEED: ${ENABLE_DEMO_SEED:-false}
     depends_on:
-      - postgres
-      - redis
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      rendycrm:
+        ipv4_address: 172.25.0.4
     restart: unless-stopped
 
-volumes:
-  postgres_data:
-  redis_data:
+  bot-runtime:
+    build:
+      context: ../rendycrm-bk
+      dockerfile: Dockerfile
+    environment:
+      PORT: "3100"
+      GO_API_BASE_URL: ${GO_API_BASE_URL:-http://api:8080}
+      BOT_RUNTIME_INTERNAL_SECRET: ${BOT_RUNTIME_INTERNAL_SECRET:-change-me-bot-runtime}
+    depends_on:
+      api:
+        condition: service_started
+    networks:
+      rendycrm:
+        ipv4_address: 172.25.0.5
+    restart: unless-stopped
+
+networks:
+  rendycrm:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.25.0.0/16

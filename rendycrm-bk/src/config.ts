@@ -12,6 +12,8 @@ export type Config = {
   operatorWebhookSecret: string;
   clientBotToken: string;
   operatorBotToken: string;
+  goApiBaseUrl: string;
+  botRuntimeInternalSecret: string;
   clientWelcomeMessage: string;
   clientSlotsMessage: string;
   clientPriceMessage: string;
@@ -95,6 +97,8 @@ export function loadConfig(): Config {
     operatorWebhookSecret: process.env.TELEGRAM_OPERATOR_WEBHOOK_SECRET?.trim() ?? "",
     clientBotToken: process.env.TELEGRAM_CLIENT_BOT_TOKEN?.trim() ?? "",
     operatorBotToken: process.env.TELEGRAM_OPERATOR_BOT_TOKEN?.trim() ?? "",
+    goApiBaseUrl: process.env.GO_API_BASE_URL?.trim().replace(/\/+$/, "") ?? "",
+    botRuntimeInternalSecret: process.env.BOT_RUNTIME_INTERNAL_SECRET?.trim() ?? "",
     clientWelcomeMessage: envOrDefault(
       "CLIENT_WELCOME_MESSAGE",
       "Здравствуйте! Помогу записаться или быстро отвечу на вопросы.",
@@ -144,6 +148,9 @@ function validateConfig(config: Config): void {
   }
   if (config.operatorBotToken !== "" && config.operatorWebhookSecret === "") {
     issues.push("TELEGRAM_OPERATOR_WEBHOOK_SECRET is required when TELEGRAM_OPERATOR_BOT_TOKEN is configured");
+  }
+  if (config.goApiBaseUrl !== "" && config.botRuntimeInternalSecret === "") {
+    issues.push("BOT_RUNTIME_INTERNAL_SECRET is required when GO_API_BASE_URL is configured");
   }
 
   if (issues.length > 0) {

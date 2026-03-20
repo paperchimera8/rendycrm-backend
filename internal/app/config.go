@@ -14,6 +14,8 @@ type Config struct {
 	StaticDir           string
 	AppBasePath         string
 	AppPublicBaseURL    string
+	BotRuntimeBaseURL   string
+	BotRuntimeSecret    string
 	PostgresDSN         string
 	RedisAddr           string
 	RedisPassword       string
@@ -38,6 +40,8 @@ func LoadConfig() Config {
 		StaticDir:           envOrDefault("STATIC_DIR", ""),
 		AppBasePath:         normalizeBasePath(os.Getenv("APP_BASE_PATH")),
 		AppPublicBaseURL:    envOrDefault("APP_PUBLIC_BASE_URL", "https://rendycrm.ru"),
+		BotRuntimeBaseURL:   strings.TrimRight(strings.TrimSpace(os.Getenv("BOT_RUNTIME_BASE_URL")), "/"),
+		BotRuntimeSecret:    strings.TrimSpace(os.Getenv("BOT_RUNTIME_INTERNAL_SECRET")),
 		PostgresDSN:         envOrDefault("POSTGRES_DSN", "postgres://postgres:postgres@postgres:5432/rendycrm?sslmode=disable"),
 		RedisAddr:           envOrDefault("REDIS_ADDR", "redis:6379"),
 		RedisPassword:       os.Getenv("REDIS_PASSWORD"),

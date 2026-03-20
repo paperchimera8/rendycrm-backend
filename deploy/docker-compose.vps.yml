@@ -37,6 +37,8 @@ services:
       POSTGRES_DSN: postgres://postgres:${POSTGRES_PASSWORD:-postgres}@postgres:5432/rendycrm?sslmode=disable
       REDIS_ADDR: redis:6379
       PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-http://localhost:3000}
+      BOT_RUNTIME_BASE_URL: ${BOT_RUNTIME_BASE_URL:-http://bot-runtime:3100}
+      BOT_RUNTIME_INTERNAL_SECRET: ${BOT_RUNTIME_INTERNAL_SECRET:-change-me-bot-runtime}
       APP_ENCRYPTION_SECRET: ${APP_ENCRYPTION_SECRET:-change-me-in-production}
       ENABLE_DEMO_SEED: ${ENABLE_DEMO_SEED:-false}
     depends_on:
@@ -44,6 +46,19 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+    restart: unless-stopped
+
+  bot-runtime:
+    build:
+      context: ../rendycrm-bk
+      dockerfile: Dockerfile
+    environment:
+      PORT: "3100"
+      GO_API_BASE_URL: ${GO_API_BASE_URL:-http://api:3000}
+      BOT_RUNTIME_INTERNAL_SECRET: ${BOT_RUNTIME_INTERNAL_SECRET:-change-me-bot-runtime}
+    depends_on:
+      api:
+        condition: service_started
     restart: unless-stopped
 
   web:

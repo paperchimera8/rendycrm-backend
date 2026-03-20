@@ -111,6 +111,8 @@ func (s *Server) routes() {
 	s.apiMux.HandleFunc("/settings/operator-bot", s.requireAuth(s.handleOperatorBotSettings))
 	s.apiMux.HandleFunc("/settings/operator-bot/", s.requireAuth(s.handleOperatorBotSettings))
 	s.apiMux.HandleFunc("/events", s.requireAuth(s.handleEvents))
+	s.apiMux.HandleFunc("/internal/bot-runtime/telegram/operator", s.handleInternalTelegramOperatorWebhook)
+	s.apiMux.HandleFunc("/internal/bot-runtime/telegram/client/", s.handleInternalTelegramClientWebhook)
 	s.apiMux.HandleFunc("/public/calendar", s.handlePublicCalendar)
 	s.apiMux.HandleFunc("/public/calendar/book", s.handlePublicCalendarBooking)
 	s.apiMux.HandleFunc("/webhooks/", s.handleWebhook)
@@ -1129,6 +1131,10 @@ func (s *Server) handleWebhook(w http.ResponseWriter, r *http.Request) {
 	parts := strings.Split(path, "/")
 	if len(parts) == 0 || parts[0] == "" {
 		s.writeError(w, http.StatusNotFound, "provider not found")
+		return
+	}
+	if s.shouldProxyTelegramWebhook(parts) {
+		s.proxyTelegramWebhookToBotRuntime(w, r)
 		return
 	}
 	switch {

@@ -1,10 +1,12 @@
 package app
 
 import (
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -221,4 +223,74 @@ func TestServerServesMountedAppAndAPI(t *testing.T) {
 			t.Fatalf("expected 404, got %d", recorder.Code)
 		}
 	})
+}
+
+func TestResolveBotRuntimeProxyURL(t *testing.T) {
+	got, err := resolveBotRuntimeProxyURL("http://bot-runtime:3100/base/", "/webhooks/telegram/operator", "a=1")
+	if err != nil {
+		t.Fatalf("resolveBotRuntimeProxyURL: %v", err)
+	}
+	want := "http://bot-runtime:3100/base/webhooks/telegram/operator?a=1"
+	if got != want {
+		t.Fatalf("unexpected proxy url: got %q want %q", got, want)
+	}
+}
+
+func TestHandleWebhookProxiesTelegramRequestsToBotRuntime(t *testing.T) {
+	var (
+		gotPath            string
+		gotMethod          string
+		gotBody            string
+		gotIngressSecret   string
+		gotTelegramSecret  string
+	)
+	target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		defer r.Body.Close()
+		body, _ := io.ReadAll(r.Body)
+		gotPath = r.URL.Path
+		gotMethod = r.Method
+		gotBody = string(body)
+		gotIngressSecret = r.Header.Get(botRuntimeSecretHeader)
+		gotTelegramSecret = r.Header.Get("X-Telegram-Bot-Api-Secret-Token")
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusAccepted)
+		_, _ = w.Write([]byte(`{"ok":true,"accepted":true}`))
+	}))
+	defer target.Close()
+
+	server := &Server{
+		cfg: Config{
+			BotRuntimeBaseURL: target.URL,
+			BotRuntimeSecret:  "shared-secret",
+		},
+	}
+
+	request := httptest.NewRequest(http.MethodPost, "/webhooks/telegram/operator", strings.NewReader(`{"update_id":1}`))
+	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set("X-Telegram-Bot-Api-Secret-Token", "telegram-secret")
+	recorder := httptest.NewRecorder()
+
+	server.handleWebhook(recorder, request)
+
+	if recorder.Code != http.StatusAccepted {
+		t.Fatalf("expected 202, got %d", recorder.Code)
+	}
+	if body := recorder.Body.String(); body != "{\"ok\":true,\"accepted\":true}" {
+		t.Fatalf("unexpected body: %q", body)
+	}
+	if gotMethod != http.MethodPost {
+		t.Fatalf("unexpected proxy method: %q", gotMethod)
+	}
+	if gotPath != "/webhooks/telegram/operator" {
+		t.Fatalf("unexpected proxy path: %q", gotPath)
+	}
+	if gotBody != `{"update_id":1}` {
+		t.Fatalf("unexpected proxy body: %q", gotBody)
+	}
+	if gotIngressSecret != "shared-secret" {
+		t.Fatalf("unexpected proxy ingress secret: %q", gotIngressSecret)
+	}
+	if gotTelegramSecret != "telegram-secret" {
+		t.Fatalf("unexpected telegram secret: %q", gotTelegramSecret)
+	}
 }

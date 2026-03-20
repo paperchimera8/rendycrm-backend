@@ -1,8 +1,11 @@
 # rendycrm-bk
 
-Минимальный backend на TypeScript/Node.js для отдельного деплоя.
+TypeScript runtime для Telegram bot ingress.
 
-Сервис не использует PostgreSQL и Redis. Он поднимает простую auth-обвязку и обрабатывает Telegram webhook'и напрямую через Bot API.
+Сервис может работать в двух режимах:
+
+- standalone: отвечает в Telegram напрямую через Bot API
+- proxy mode: быстро подтверждает webhook, дедуплицирует `update_id` и форвардит update во внутренний Go bot runtime
 
 ## Endpoints
 
@@ -13,6 +16,24 @@
 - `POST /webhooks/telegram/operator`
 
 ## Telegram
+
+### Proxy mode
+
+Если заданы:
+
+- `GO_API_BASE_URL`
+- `BOT_RUNTIME_INTERNAL_SECRET`
+
+то сервис работает как TS webhook gateway для основного CRM:
+
+- принимает Telegram webhook
+- сразу отвечает `200 OK`
+- дедуплицирует повторные update
+- отправляет update в Go API на `/internal/bot-runtime/...`
+
+В этом режиме Telegram bot token не нужны самому `rendycrm-bk`, потому что отправкой сообщений продолжает управлять Go CRM.
+
+### Standalone mode
 
 Чтобы бот действительно отвечал, нужно задать токены:
 
@@ -77,6 +98,8 @@ npm test
 - `TELEGRAM_OPERATOR_WEBHOOK_SECRET`
 - `TELEGRAM_CLIENT_BOT_TOKEN`
 - `TELEGRAM_OPERATOR_BOT_TOKEN`
+- `GO_API_BASE_URL`
+- `BOT_RUNTIME_INTERNAL_SECRET`
 
 ## Production Notes
 
