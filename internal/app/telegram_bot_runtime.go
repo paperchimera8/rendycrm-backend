@@ -32,7 +32,7 @@ const (
 	botRuntimeOperatorSessionTTL    = 15 * time.Minute
 	telegramCallbackActionCooldown  = 10 * time.Second
 	telegramInboundDeliveryCooldown = 2 * time.Minute
-	telegramOperatorReplyCooldown   = 5 * time.Second
+	telegramOperatorReplyCooldown   = 30 * time.Second
 	telegramPromptCooldown          = 45 * time.Second
 )
 
@@ -613,6 +613,14 @@ func (s *Server) prepareTelegramOperatorRuntime(ctx context.Context, request bot
 		return botRuntimeOperatorPrepareResponse{Skip: true}, nil
 	}
 	event.EventID = botRuntimeEventIDFromUpdate(update)
+	log.Printf(
+		"telegram inbound bot=operator stage=engine_prepare update_id=%d chat_id=%s message_id=%d callback_id=%q value=%q",
+		update.UpdateID,
+		chatID,
+		messageIDFromUpdate(update),
+		callbackIDFromUpdate(update),
+		telegramLogValue(text),
+	)
 
 	return botRuntimeOperatorPrepareResponse{
 		Session: session,
