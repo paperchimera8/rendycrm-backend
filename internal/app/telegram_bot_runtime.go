@@ -678,15 +678,6 @@ func (s *Server) applyTelegramOperatorRuntime(ctx context.Context, request botRu
 	if !isNew {
 		return true, nil
 	}
-	if operatorCommandNeedsThrottle(request.Snapshot.Command) {
-		freshCommand, err := s.claimTelegramOperatorCommand(ctx, account.ID, request.Snapshot.ChatID, request.Snapshot.Command)
-		if err != nil {
-			return false, err
-		}
-		if !freshCommand {
-			return true, nil
-		}
-	}
 	if request.Snapshot.CallbackData != "" {
 		freshAction, err := s.claimTelegramCallbackAction(ctx, account.ID, ChannelKindTelegramOperator, request.Snapshot.ChatID, request.Snapshot.MessageID, request.Snapshot.CallbackData)
 		if err != nil {
