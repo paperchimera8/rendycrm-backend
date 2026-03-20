@@ -1238,6 +1238,17 @@ func (s *Server) enqueueBotEngineReply(ctx context.Context, account ChannelAccou
 			return err
 		}
 	}
+	if account.ChannelKind == ChannelKindTelegramOperator && kind == OutboundKindTelegramEditInline && payload.MessageID > 0 {
+		sentPayload, err := s.runtime.repository.TelegramRuntimeMessagePayload(ctx, account.ID, chatID, payload.MessageID)
+		switch {
+		case err == nil && telegramEditInlineMatchesSentPayload(sentPayload, payload):
+			log.Printf("telegram operator reply skipped no-op account_id=%s chat_id=%s message_id=%d", account.ID, chatID, payload.MessageID)
+			return nil
+		case err == nil || errors.Is(err, sql.ErrNoRows):
+		default:
+			return err
+		}
+	}
 	if account.ChannelKind == ChannelKindTelegramOperator && s != nil && s.runtime != nil && s.runtime.redis != nil {
 		replyKey := telegramOperatorReplyKey(account.ID, chatID, inboundMessageID, callbackData, payload)
 		if replyKey != "" {
@@ -1262,6 +1273,31 @@ func botEngineReplyOutboundKind(account ChannelAccount, inboundMessageID int64, 
 		return OutboundKindTelegramSendInline
 	}
 	return OutboundKindTelegramSendText
+}
+
+func telegramEditInlineMatchesSentPayload(current, next TelegramOutboundPayload) bool {
+	if current.Text != next.Text {
+		return false
+	}
+	return telegramInlineButtonsEqual(current.Buttons, next.Buttons)
+}
+
+func telegramInlineButtonsEqual(left, right []TelegramInlineButton) bool {
+	if len(left) != len(right) {
+		return false
+	}
+	for idx := range left {
+		if left[idx].Text != right[idx].Text {
+			return false
+		}
+		if left[idx].CallbackData != right[idx].CallbackData {
+			return false
+		}
+		if left[idx].URL != right[idx].URL {
+			return false
+		}
+	}
+	return true
 }
 
 func (s *Server) buildBotEngineReplyButtons(account ChannelAccount, chatID string, state *botEngineClientSession, buttons []botEngineButton) []TelegramInlineButton {

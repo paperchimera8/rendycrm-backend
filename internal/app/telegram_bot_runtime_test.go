@@ -206,6 +206,61 @@ func TestBotEngineReplyOutboundKindKeepsOperatorTextRepliesAsInlineMessagesBefor
 	}
 }
 
+func TestTelegramEditInlineMatchesSentPayload(t *testing.T) {
+	current := TelegramOutboundPayload{
+		Text: "Доступны основные разделы.",
+		Buttons: []TelegramInlineButton{
+			{Text: "Дашборд", CallbackData: "/dashboard"},
+			{Text: "FAQ", CallbackData: "/faq"},
+		},
+	}
+	next := TelegramOutboundPayload{
+		Text: "Доступны основные разделы.",
+		Buttons: []TelegramInlineButton{
+			{Text: "Дашборд", CallbackData: "/dashboard"},
+			{Text: "FAQ", CallbackData: "/faq"},
+		},
+	}
+
+	if !telegramEditInlineMatchesSentPayload(current, next) {
+		t.Fatal("expected identical text and buttons to be treated as edit no-op")
+	}
+}
+
+func TestTelegramEditInlineMatchesSentPayloadRejectsButtonChanges(t *testing.T) {
+	current := TelegramOutboundPayload{
+		Text: "Доступны основные разделы.",
+		Buttons: []TelegramInlineButton{
+			{Text: "Дашборд", CallbackData: "/dashboard"},
+		},
+	}
+	next := TelegramOutboundPayload{
+		Text: "Доступны основные разделы.",
+		Buttons: []TelegramInlineButton{
+			{Text: "Настройки", CallbackData: "/settings"},
+		},
+	}
+
+	if telegramEditInlineMatchesSentPayload(current, next) {
+		t.Fatal("expected different buttons to force a real edit")
+	}
+}
+
+func TestTelegramEditInlineMatchesSentPayloadRejectsTextChanges(t *testing.T) {
+	current := TelegramOutboundPayload{
+		Text:    "Доступны основные разделы.",
+		Buttons: []TelegramInlineButton{{Text: "Дашборд", CallbackData: "/dashboard"}},
+	}
+	next := TelegramOutboundPayload{
+		Text:    "⚙️ Настройки",
+		Buttons: []TelegramInlineButton{{Text: "Дашборд", CallbackData: "/dashboard"}},
+	}
+
+	if telegramEditInlineMatchesSentPayload(current, next) {
+		t.Fatal("expected different text to force a real edit")
+	}
+}
+
 func TestOperatorCommandNeedsThrottle(t *testing.T) {
 	if !operatorCommandNeedsThrottle("/start") {
 		t.Fatal("expected /start to be throttled")

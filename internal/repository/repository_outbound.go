@@ -519,6 +519,35 @@ func (r *Repository) LatestTelegramRuntimeMessageID(ctx context.Context, channel
 	return messageID, nil
 }
 
+func (r *Repository) TelegramRuntimeMessagePayload(ctx context.Context, channelAccountID, chatID string, providerMessageID int64) (TelegramOutboundPayload, error) {
+	if strings.TrimSpace(channelAccountID) == "" || strings.TrimSpace(chatID) == "" || providerMessageID <= 0 {
+		return TelegramOutboundPayload{}, sql.ErrNoRows
+	}
+
+	var rawPayload string
+	err := r.db.QueryRowContext(ctx, `
+		SELECT payload_json::text
+		FROM outbound_messages
+		WHERE channel_account_id = $1
+		  AND conversation_id = ''
+		  AND status = 'sent'
+		  AND kind IN ('telegram.send_inline', 'telegram.edit_inline')
+		  AND payload_json->>'chatId' = $2
+		  AND provider_message_id = $3
+		ORDER BY created_at DESC
+		LIMIT 1
+	`, channelAccountID, chatID, strconv.FormatInt(providerMessageID, 10)).Scan(&rawPayload)
+	if err != nil {
+		return TelegramOutboundPayload{}, err
+	}
+
+	var payload TelegramOutboundPayload
+	if err := json.Unmarshal([]byte(rawPayload), &payload); err != nil {
+		return TelegramOutboundPayload{}, err
+	}
+	return payload, nil
+}
+
 func (r *Repository) ClaimNextOutboundMessage(ctx context.Context) (OutboundMessage, error) {
 	var item OutboundMessage
 	err := r.db.QueryRowContext(ctx, `
