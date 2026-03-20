@@ -105,8 +105,22 @@ func (s *Server) dispatchOutboundMessage(ctx context.Context, item OutboundMessa
 		return err
 	}
 
+	dispatchKind := item.Kind
+	if item.ChannelKind == ChannelKindTelegramOperator && item.Kind == OutboundKindTelegramSendInline && strings.TrimSpace(payload.ChatID) != "" && len(payload.Buttons) > 0 {
+		messageID, lookupErr := s.loadTelegramOperatorRuntimeMessageID(ctx, item.ChannelAccountID, payload.ChatID)
+		switch {
+		case lookupErr == nil && messageID > 0:
+			dispatchKind = OutboundKindTelegramEditInline
+			payload.MessageID = messageID
+			payload.EditFallbackToSend = true
+		case lookupErr == nil || errors.Is(lookupErr, sql.ErrNoRows):
+		default:
+			log.Printf("telegram operator dispatch promotion failed id=%s account_id=%s chat_id=%s: %v", item.ID, item.ChannelAccountID, payload.ChatID, lookupErr)
+		}
+	}
+
 	var providerMessageID string
-	switch item.Kind {
+	switch dispatchKind {
 	case OutboundKindTelegramSendText:
 		res, err := s.runtime.telegram.SendText(ctx, token, tgapi.SendMessageRequest{
 			ChatID: payload.ChatID,

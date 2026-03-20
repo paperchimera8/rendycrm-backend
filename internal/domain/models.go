@@ -458,15 +458,16 @@ type TelegramInlineButton struct {
 }
 
 type TelegramOutboundPayload struct {
-	ChatID       string                 `json:"chatId"`
-	Text         string                 `json:"text"`
-	MessageID    int64                  `json:"messageId,omitempty"`
-	Buttons      []TelegramInlineButton `json:"buttons,omitempty"`
-	ParseMode    string                 `json:"parseMode,omitempty"`
-	CallbackID   string                 `json:"callbackId,omitempty"`
-	CallbackText string                 `json:"callbackText,omitempty"`
-	ShowAlert    bool                   `json:"showAlert,omitempty"`
-	EditFallbackToSend bool             `json:"editFallbackToSend,omitempty"`
+	ChatID             string                 `json:"chatId"`
+	Text               string                 `json:"text"`
+	MessageID          int64                  `json:"messageId,omitempty"`
+	Buttons            []TelegramInlineButton `json:"buttons,omitempty"`
+	ParseMode          string                 `json:"parseMode,omitempty"`
+	CallbackID         string                 `json:"callbackId,omitempty"`
+	CallbackText       string                 `json:"callbackText,omitempty"`
+	ShowAlert          bool                   `json:"showAlert,omitempty"`
+	DebugTag           string                 `json:"debugTag,omitempty"`
+	EditFallbackToSend bool                   `json:"editFallbackToSend,omitempty"`
 }
 
 type ClientBotRoute struct {

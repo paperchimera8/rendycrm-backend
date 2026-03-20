@@ -1224,6 +1224,9 @@ func (s *Server) enqueueBotEngineReply(ctx context.Context, account ChannelAccou
 		Text:    effect.Text,
 		Buttons: s.buildBotEngineReplyButtons(account, chatID, state, effect.Buttons),
 	}
+	if account.ChannelKind == ChannelKindTelegramOperator && len(payload.Buttons) > 0 {
+		payload.DebugTag = "operator-menu-v2"
+	}
 	kind := botEngineReplyOutboundKind(account, inboundMessageID, callbackID, payload.Buttons)
 	if kind == OutboundKindTelegramEditInline {
 		payload.MessageID = inboundMessageID
