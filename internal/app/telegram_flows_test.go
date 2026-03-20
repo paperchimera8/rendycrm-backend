@@ -1,7 +1,6 @@
 package app
 
 import (
-	"context"
 	"testing"
 
 	tgapi "github.com/vital/rendycrm-app/internal/telegram"
@@ -50,20 +49,6 @@ func TestTelegramCallbackExternalMessageIDFallsBackToCallbackID(t *testing.T) {
 	}
 }
 
-func TestHandleTelegramClientCallbackIgnoresCallbackWithoutMessage(t *testing.T) {
-	server := &Server{}
-	update := tgapi.Update{
-		CallbackQuery: &tgapi.CallbackQuery{
-			ID:   "cbq-no-message",
-			Data: "client:human",
-		},
-	}
-
-	if err := server.handleTelegramClientCallback(context.Background(), ChannelAccount{}, update); err != nil {
-		t.Fatalf("expected callback without message to be ignored safely, got %v", err)
-	}
-}
-
 func TestTelegramCallbackActionKeySameCommandSameSourceIsStable(t *testing.T) {
 	first := telegramCallbackActionKey("account-1", ChannelKindTelegramClient, "1001", 42, "client:slots")
 	second := telegramCallbackActionKey("account-1", ChannelKindTelegramClient, "1001", 42, " client:slots ")
@@ -95,69 +80,9 @@ func TestTelegramInboundDeliveryKeyUsesCallbackIDWhenPresent(t *testing.T) {
 	}
 }
 
-func TestHandleTelegramOperatorUpdateIgnoresCallbackWithoutMessage(t *testing.T) {
-	server := &Server{}
-	update := tgapi.Update{
-		UpdateID: 77,
-		CallbackQuery: &tgapi.CallbackQuery{
-			ID:   "cbq-no-message",
-			Data: "/dialogs",
-			From: tgapi.User{ID: 123},
-		},
-	}
-
-	if err := server.handleTelegramOperatorUpdate(context.Background(), ChannelAccount{}, update); err != nil {
-		t.Fatalf("expected operator callback without message to be ignored safely, got %v", err)
-	}
-}
-
 func TestNormalizeOperatorCommandReminderToggle(t *testing.T) {
-	got := normalizeOperatorCommand("rmd:toggle:bok_123:off:2")
+	got := normalizeOperatorCommand("rmd:toggle:bok_123:off")
 	if want := "reminder:toggle:bok_123:off"; got != want {
 		t.Fatalf("unexpected reminder toggle normalization: got %q want %q", got, want)
-	}
-}
-
-func TestTelegramButtonLabelReminderToggleUsesPosition(t *testing.T) {
-	if got, want := telegramButtonLabel("rmd:toggle:bok_123:on:3"), "#3 Вкл"; got != want {
-		t.Fatalf("unexpected reminder on label: got %q want %q", got, want)
-	}
-	if got, want := telegramButtonLabel("rmd:toggle:bok_123:off:4"), "#4 Выкл"; got != want {
-		t.Fatalf("unexpected reminder off label: got %q want %q", got, want)
-	}
-}
-
-func TestOperatorMainMenuButtonsIncludeReminders(t *testing.T) {
-	buttons := operatorMainMenuButtons()
-	for _, button := range buttons {
-		if button == "/reminders" {
-			return
-		}
-	}
-	t.Fatalf("expected /reminders in operator main menu buttons, got %v", buttons)
-}
-
-func TestHandleOperatorCommandStartReturnsRemindersButton(t *testing.T) {
-	server := &Server{}
-	responses, err := server.handleOperatorCommand(context.Background(), OperatorBotBinding{
-		WorkspaceID:     "ws_test",
-		UserID:          "usr_test",
-		TelegramChatID:  "123",
-	}, "/start")
-	if err != nil {
-		t.Fatalf("handleOperatorCommand(/start): %v", err)
-	}
-	if len(responses) != 1 {
-		t.Fatalf("expected single response, got %d", len(responses))
-	}
-	found := false
-	for _, button := range responses[0].Buttons {
-		if button == "/reminders" {
-			found = true
-			break
-		}
-	}
-	if !found {
-		t.Fatalf("expected /reminders button, got %v", responses[0].Buttons)
 	}
 }

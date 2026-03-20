@@ -63,6 +63,13 @@ export interface SettingsAutoReplyChangedEffect {
   readonly enabled: boolean;
 }
 
+export interface BookingClientReminderChangedEffect {
+  readonly type: "booking.client_reminder_changed";
+  readonly workspaceId: string;
+  readonly bookingId: string;
+  readonly enabled: boolean;
+}
+
 export interface OperatorBoundEffect {
   readonly type: "operator.bound";
   readonly code: string;
@@ -85,6 +92,7 @@ export type BotEffect =
   | BookingConfirmedEffect
   | BookingCancelledEffect
   | SettingsAutoReplyChangedEffect
+  | BookingClientReminderChangedEffect
   | OperatorBoundEffect
   | ConfigurationErrorEffect;
 

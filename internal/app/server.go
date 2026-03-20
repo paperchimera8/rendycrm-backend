@@ -166,6 +166,7 @@ func stripPathPrefix(r *http.Request, prefix string) (*http.Request, bool) {
 
 func (s *Server) startWorker(ctx context.Context) {
 	go s.processOutboundMessages(ctx)
+	go s.runClientBookingReminderWorker(ctx)
 	go func() {
 		defer func() {
 			if recovered := recover(); recovered != nil {

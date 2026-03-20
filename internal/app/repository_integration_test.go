@@ -211,10 +211,10 @@ func TestEnsureSlotSystemMaterializesLegacyAvailabilityWithHourlyCadence(t *test
 	defer cleanup()
 
 	if _, err := repo.UpdateSlotSettings(context.Background(), workspaceID, SlotSettings{
-		WorkspaceID:             workspaceID,
-		Timezone:                "Europe/Moscow",
-		DefaultDurationMinutes:  60,
-		GenerationHorizonDays:   30,
+		WorkspaceID:            workspaceID,
+		Timezone:               "Europe/Moscow",
+		DefaultDurationMinutes: 60,
+		GenerationHorizonDays:  30,
 	}); err != nil {
 		t.Fatalf("update slot settings: %v", err)
 	}
@@ -363,6 +363,139 @@ func TestRepairScheduleConsistencyFixesLegacyState(t *testing.T) {
 	}
 	if orphanStatus != string(DailySlotFree) {
 		t.Fatalf("expected orphan slot to become free, got %s", orphanStatus)
+	}
+}
+
+func TestEnqueueDueClientTelegramRemindersQueuesSingleReminder(t *testing.T) {
+	repo, db, workspaceID, customerID, cleanup := newIntegrationRepository(t, "Europe/Moscow")
+	defer cleanup()
+
+	seedInboxChannelAccount(t, db, workspaceID, "cha_tg_reminder", ChannelTelegram, "telegram-secret")
+	if _, err := db.ExecContext(context.Background(), `
+		INSERT INTO customer_channel_identities (id, customer_id, workspace_id, provider, external_id, username)
+		VALUES ('cci_reminder', $1, $2, 'telegram', 'tg-chat-100', 'tg-user')
+	`, customerID, workspaceID); err != nil {
+		t.Fatalf("seed telegram identity: %v", err)
+	}
+
+	loc := mustLocation(t, "Europe/Moscow")
+	now := time.Date(2026, 3, 20, 10, 0, 0, 0, time.UTC)
+	startsAt := time.Date(2026, 3, 20, 16, 30, 0, 0, loc).UTC()
+	endsAt := startsAt.Add(time.Hour)
+
+	booking, err := repo.CreateConfirmedBooking(context.Background(), workspaceID, customerID, startsAt, endsAt, 4500, "Reminder booking")
+	if err != nil {
+		t.Fatalf("create confirmed booking: %v", err)
+	}
+	if !booking.ClientReminderEnabled {
+		t.Fatal("expected reminders to be enabled by default")
+	}
+
+	count, err := repo.EnqueueDueClientTelegramReminders(context.Background(), now, 4*time.Hour, 10)
+	if err != nil {
+		t.Fatalf("enqueue due reminders: %v", err)
+	}
+	if count != 1 {
+		t.Fatalf("expected one queued reminder, got %d", count)
+	}
+
+	refreshed, err := repo.Booking(context.Background(), workspaceID, booking.ID)
+	if err != nil {
+		t.Fatalf("reload booking after reminder enqueue: %v", err)
+	}
+	if refreshed.ClientReminderSentAt == nil {
+		t.Fatal("expected reminder_sent_at to be set after queueing reminder")
+	}
+
+	var (
+		outboundCount int
+		payload       string
+	)
+	if err := db.QueryRowContext(context.Background(), `
+		SELECT COUNT(*), COALESCE(MAX(payload_json::text), '')
+		FROM outbound_messages
+		WHERE workspace_id = $1
+		  AND channel_account_id = 'cha_tg_reminder'
+		  AND kind = 'telegram.send_text'
+	`, workspaceID).Scan(&outboundCount, &payload); err != nil {
+		t.Fatalf("query queued outbound reminder: %v", err)
+	}
+	if outboundCount != 1 {
+		t.Fatalf("expected one outbound reminder, got %d", outboundCount)
+	}
+	if !strings.Contains(payload, "tg-chat-100") {
+		t.Fatalf("expected outbound payload to target telegram chat, got %s", payload)
+	}
+	if !strings.Contains(payload, "Напоминание") {
+		t.Fatalf("expected outbound payload to contain reminder text, got %s", payload)
+	}
+
+	count, err = repo.EnqueueDueClientTelegramReminders(context.Background(), now.Add(time.Minute), 4*time.Hour, 10)
+	if err != nil {
+		t.Fatalf("enqueue due reminders second pass: %v", err)
+	}
+	if count != 0 {
+		t.Fatalf("expected no reminders on second pass, got %d", count)
+	}
+}
+
+func TestReminderToggleAndRescheduleResetSentAt(t *testing.T) {
+	repo, db, workspaceID, customerID, cleanup := newIntegrationRepository(t, "Europe/Moscow")
+	defer cleanup()
+
+	loc := mustLocation(t, "Europe/Moscow")
+	oldStart := time.Date(2026, 3, 20, 12, 0, 0, 0, loc).UTC()
+	oldEnd := oldStart.Add(time.Hour)
+	newStart := time.Date(2026, 3, 20, 15, 0, 0, 0, loc).UTC()
+	newEnd := newStart.Add(time.Hour)
+
+	booking, err := repo.CreateConfirmedBooking(context.Background(), workspaceID, customerID, oldStart, oldEnd, 4300, "Original")
+	if err != nil {
+		t.Fatalf("create confirmed booking: %v", err)
+	}
+	if booking.ClientReminderSentAt != nil {
+		t.Fatal("expected a new booking to have no sent reminder")
+	}
+
+	if _, err := db.ExecContext(context.Background(), `
+		UPDATE bookings
+		SET client_reminder_sent_at = NOW()
+		WHERE id = $1 AND workspace_id = $2
+	`, booking.ID, workspaceID); err != nil {
+		t.Fatalf("mark reminder as sent: %v", err)
+	}
+
+	toggledOff, err := repo.SetBookingClientReminderEnabled(context.Background(), workspaceID, booking.ID, false)
+	if err != nil {
+		t.Fatalf("toggle reminder off: %v", err)
+	}
+	if toggledOff.ClientReminderEnabled {
+		t.Fatal("expected reminder to be disabled")
+	}
+	if toggledOff.ClientReminderSentAt == nil {
+		t.Fatal("expected sent reminder timestamp to stay intact when disabling reminder")
+	}
+
+	toggledOn, err := repo.SetBookingClientReminderEnabled(context.Background(), workspaceID, booking.ID, true)
+	if err != nil {
+		t.Fatalf("toggle reminder on: %v", err)
+	}
+	if !toggledOn.ClientReminderEnabled {
+		t.Fatal("expected reminder to be enabled")
+	}
+	if toggledOn.ClientReminderSentAt == nil {
+		t.Fatal("expected sent reminder timestamp to remain unchanged when re-enabling")
+	}
+
+	rescheduled, err := repo.RescheduleConfirmedBooking(context.Background(), workspaceID, booking.ID, newStart, newEnd, 4500, "Moved")
+	if err != nil {
+		t.Fatalf("reschedule confirmed booking: %v", err)
+	}
+	if rescheduled.ClientReminderSentAt != nil {
+		t.Fatal("expected reschedule to clear sent reminder timestamp")
+	}
+	if !rescheduled.ClientReminderEnabled {
+		t.Fatal("expected reschedule to preserve enabled reminder flag")
 	}
 }
 

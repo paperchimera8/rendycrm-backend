@@ -294,17 +294,19 @@ type SlotHold struct {
 }
 
 type Booking struct {
-	ID           string        `json:"id"`
-	WorkspaceID  string        `json:"workspaceId"`
-	CustomerID   string        `json:"customerId"`
-	CustomerName string        `json:"customerName"`
-	DailySlotID  string        `json:"dailySlotId"`
-	StartsAt     time.Time     `json:"startsAt"`
-	EndsAt       time.Time     `json:"endsAt"`
-	Amount       int           `json:"amount"`
-	Status       BookingStatus `json:"status"`
-	Source       string        `json:"source"`
-	Notes        string        `json:"notes"`
+	ID                    string        `json:"id"`
+	WorkspaceID           string        `json:"workspaceId"`
+	CustomerID            string        `json:"customerId"`
+	CustomerName          string        `json:"customerName"`
+	DailySlotID           string        `json:"dailySlotId"`
+	StartsAt              time.Time     `json:"startsAt"`
+	EndsAt                time.Time     `json:"endsAt"`
+	Amount                int           `json:"amount"`
+	Status                BookingStatus `json:"status"`
+	Source                string        `json:"source"`
+	Notes                 string        `json:"notes"`
+	ClientReminderEnabled bool          `json:"clientReminderEnabled"`
+	ClientReminderSentAt  *time.Time    `json:"clientReminderSentAt,omitempty"`
 }
 
 type SlotEditorResponse struct {

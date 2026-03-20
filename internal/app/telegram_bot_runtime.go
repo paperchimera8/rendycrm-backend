@@ -48,6 +48,7 @@ type botEngineEffect struct {
 	WorkspaceID    string            `json:"workspaceId,omitempty"`
 	WorkspaceName  string            `json:"workspaceName,omitempty"`
 	ConversationID string            `json:"conversationId,omitempty"`
+	BookingID      string            `json:"bookingId,omitempty"`
 	SlotID         string            `json:"slotId,omitempty"`
 	SlotLabel      string            `json:"slotLabel,omitempty"`
 	Amount         int               `json:"amount,omitempty"`
@@ -176,6 +177,14 @@ type botEngineOperatorWeekSlot struct {
 	SlotCount int    `json:"slotCount"`
 }
 
+type botEngineOperatorReminder struct {
+	BookingID     string `json:"bookingId"`
+	CustomerName  string `json:"customerName"`
+	StartsAtLabel string `json:"startsAtLabel"`
+	Enabled       bool   `json:"enabled"`
+	Sent          bool   `json:"sent"`
+}
+
 type botEngineOperatorSettings struct {
 	AutoReply         bool     `json:"autoReply"`
 	HandoffEnabled    bool     `json:"handoffEnabled"`
@@ -190,6 +199,7 @@ type botEngineOperatorWorkspace struct {
 	Dashboard     botEngineOperatorDashboard      `json:"dashboard"`
 	Conversations []botEngineOperatorConversation `json:"conversations"`
 	WeekSlots     []botEngineOperatorWeekSlot     `json:"weekSlots"`
+	Reminders     []botEngineOperatorReminder     `json:"reminders"`
 	Settings      botEngineOperatorSettings       `json:"settings"`
 }
 
@@ -1309,6 +1319,10 @@ func (s *Server) buildBotEngineOperatorWorkspace(ctx context.Context, workspaceI
 	if err != nil {
 		return nil, err
 	}
+	reminderBookings, err := s.runtime.repository.UpcomingReminderBookings(ctx, workspaceID, time.Now().UTC(), operatorReminderHorizon, operatorReminderListLimit)
+	if err != nil {
+		return nil, err
+	}
 	operatorSettings, err := s.runtime.repository.OperatorBotSettings(ctx, workspaceID, userID, s.cfg.OperatorBotUsername, s.cfg.PublicBaseURL)
 	if err != nil {
 		return nil, err
@@ -1391,6 +1405,7 @@ func (s *Server) buildBotEngineOperatorWorkspace(ctx context.Context, workspaceI
 		},
 		Conversations: operatorConversations,
 		WeekSlots:     make([]botEngineOperatorWeekSlot, 0, len(weekSlots)),
+		Reminders:     make([]botEngineOperatorReminder, 0, len(reminderBookings)),
 		Settings: botEngineOperatorSettings{
 			AutoReply:         botConfig.AutoReply,
 			HandoffEnabled:    botConfig.HandoffEnabled,
@@ -1406,6 +1421,15 @@ func (s *Server) buildBotEngineOperatorWorkspace(ctx context.Context, workspaceI
 		workspaceState.WeekSlots = append(workspaceState.WeekSlots, botEngineOperatorWeekSlot{
 			Label:     day.Label,
 			SlotCount: len(day.Slots),
+		})
+	}
+	for _, booking := range reminderBookings {
+		workspaceState.Reminders = append(workspaceState.Reminders, botEngineOperatorReminder{
+			BookingID:     booking.ID,
+			CustomerName:  booking.CustomerName,
+			StartsAtLabel: formatBookingReminderTime(booking.StartsAt, workspace.Timezone),
+			Enabled:       booking.ClientReminderEnabled,
+			Sent:          booking.ClientReminderSentAt != nil,
 		})
 	}
 	for _, item := range faqItems {
@@ -1514,6 +1538,12 @@ func (s *Server) applyBotEngineOperatorEffect(ctx context.Context, account Chann
 		}
 		actor := domain.Actor{Kind: domain.ActorOperatorBot, WorkspaceID: binding.WorkspaceID, UserID: binding.UserID}
 		return s.runtime.services.BotSettings.ToggleAutoReply(ctx, actor, binding.WorkspaceID, effect.Enabled)
+	case "booking.client_reminder_changed":
+		if strings.TrimSpace(binding.WorkspaceID) == "" || strings.TrimSpace(effect.BookingID) == "" {
+			return nil
+		}
+		_, err := s.runtime.repository.SetBookingClientReminderEnabled(ctx, binding.WorkspaceID, effect.BookingID, effect.Enabled)
+		return err
 	default:
 		return nil
 	}
@@ -1940,6 +1970,11 @@ func normalizeOperatorCommand(text string) string {
 		return "take:" + strings.TrimPrefix(text, "dlg:take:")
 	case strings.HasPrefix(text, "dlg:auto:"):
 		return "auto:" + strings.TrimPrefix(text, "dlg:auto:")
+	case strings.HasPrefix(text, "rmd:toggle:"):
+		parts := strings.Split(text, ":")
+		if len(parts) == 4 {
+			return "reminder:toggle:" + parts[2] + ":" + parts[3]
+		}
 	}
 	return text
 }

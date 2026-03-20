@@ -46,6 +46,22 @@ const operatorContext: OperatorContext = {
         },
       ],
       weekSlots: [{ label: "Чт 19.03", slotCount: 3 }],
+      reminders: [
+        {
+          bookingId: "bok_1",
+          customerName: "Анна",
+          startsAtLabel: "19.03 14:00",
+          enabled: true,
+          sent: false,
+        },
+        {
+          bookingId: "bok_2",
+          customerName: "Мария",
+          startsAtLabel: "20.03 10:30",
+          enabled: false,
+          sent: false,
+        },
+      ],
       settings: {
         autoReply: true,
         handoffEnabled: true,
@@ -181,6 +197,88 @@ describe("operator engine", () => {
         type: "reply",
         text: expect.stringContaining("Записей сегодня: 4"),
       }),
+    );
+  });
+
+  it("includes reminders in main menu on start", async () => {
+    const result = await handleOperatorEvent(
+      {
+        ...createOperatorSession(),
+        binding: {
+          kind: "bound" as const,
+          workspaceId: "ws_smoke",
+          userId: "usr_1",
+          chatId: "tg-chat-1",
+        },
+      },
+      { type: "message", eventId: "evt-reminders-start", text: "/start" },
+      {
+        ...operatorContext,
+        dedupStore: new InMemoryDedupStore(),
+      },
+    );
+
+    expect(result.effects).toContainEqual(
+      expect.objectContaining({
+        type: "reply",
+        buttons: expect.arrayContaining([
+          expect.objectContaining({ action: "/reminders" }),
+        ]),
+      }),
+    );
+  });
+
+  it("shows reminder list and toggles reminder state", async () => {
+    const session = {
+      ...createOperatorSession(),
+      binding: {
+        kind: "bound" as const,
+        workspaceId: "ws_smoke",
+        userId: "usr_1",
+        chatId: "tg-chat-1",
+      },
+    };
+
+    const menu = await handleOperatorEvent(
+      session,
+      { type: "message", eventId: "evt-reminders-menu", text: "/reminders" },
+      {
+        ...operatorContext,
+        dedupStore: new InMemoryDedupStore(),
+      },
+    );
+
+    expect(menu.effects).toContainEqual(
+      expect.objectContaining({
+        type: "reply",
+        text: expect.stringContaining("🔔 Напоминания на 7 дней"),
+        buttons: expect.arrayContaining([
+          expect.objectContaining({ action: "rmd:toggle:bok_1:off" }),
+        ]),
+      }),
+    );
+
+    const toggled = await handleOperatorEvent(
+      session,
+      { type: "callback", eventId: "evt-reminders-toggle", data: "rmd:toggle:bok_1:off" },
+      {
+        ...operatorContext,
+        dedupStore: new InMemoryDedupStore(),
+      },
+    );
+
+    expect(toggled.effects).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          type: "booking.client_reminder_changed",
+          bookingId: "bok_1",
+          enabled: false,
+        }),
+        expect.objectContaining({
+          type: "reply",
+          text: expect.stringContaining("Напоминание: выкл"),
+        }),
+      ]),
     );
   });
 

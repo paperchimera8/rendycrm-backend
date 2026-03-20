@@ -47,6 +47,14 @@ export interface OperatorWeekSlots {
   readonly slotCount: number;
 }
 
+export interface OperatorReminder {
+  readonly bookingId: string;
+  readonly customerName: string;
+  readonly startsAtLabel: string;
+  readonly enabled: boolean;
+  readonly sent: boolean;
+}
+
 export interface OperatorSettings {
   readonly autoReply: boolean;
   readonly handoffEnabled: boolean;
@@ -61,6 +69,7 @@ export interface OperatorWorkspace {
   readonly dashboard: OperatorDashboard;
   readonly conversations: readonly OperatorConversation[];
   readonly weekSlots: readonly OperatorWeekSlots[];
+  readonly reminders: readonly OperatorReminder[];
   readonly settings: OperatorSettings;
 }
 
@@ -120,6 +129,7 @@ const MAIN_MENU_BUTTONS: readonly BotButton[] = [
   { text: "Дашборд", action: "/dashboard" },
   { text: "Диалоги", action: "/dialogs" },
   { text: "Слоты", action: "/slots" },
+  { text: "Напоминания", action: "/reminders" },
   { text: "Настройки", action: "/settings" },
   { text: "FAQ", action: "/faq" },
 ];
@@ -358,6 +368,8 @@ function handleBoundOperatorCommand(
       return { state: session, effects: [formatDialogs(workspace.conversations)] };
     case command === "/slots":
       return { state: session, effects: [formatWeekSlots(workspace)] };
+    case command === "/reminders":
+      return { state: session, effects: [formatReminders(workspace)] };
     case command === "/settings":
       return {
         state: session,
@@ -434,6 +446,9 @@ function handleBoundOperatorCommand(
       "operator.close_dialog",
       "Диалог закрыт.",
     );
+  }
+  if (command.startsWith("reminder:toggle:")) {
+    return toggleReminder(session, workspace, command);
   }
 
   return {
@@ -614,6 +629,32 @@ function formatWeekSlots(workspace: OperatorWorkspace) {
   return reply(`🕒 ${workspace.name}\n\n${lines.join("\n")}`, MAIN_MENU_BUTTONS);
 }
 
+function formatReminders(workspace: OperatorWorkspace) {
+  if (workspace.reminders.length === 0) {
+    return reply(
+      "🔔 Напоминания на 7 дней\n\nПодтвержденных записей на ближайшую неделю нет.",
+      [{ text: "Дашборд", action: "/dashboard" }],
+    );
+  }
+
+  const lines = ["🔔 Напоминания на 7 дней"];
+  const buttons: BotButton[] = [];
+  workspace.reminders.forEach((reminder, index) => {
+    const position = index + 1;
+    lines.push("");
+    lines.push(`${position}. ${reminder.startsAtLabel} - ${reminder.customerName}`);
+    lines.push(`Напоминание: ${reminderStateLabel(reminder)}`);
+    if (!reminder.sent) {
+      buttons.push({
+        text: reminder.enabled ? `#${position} Выкл` : `#${position} Вкл`,
+        action: `rmd:toggle:${reminder.bookingId}:${reminder.enabled ? "off" : "on"}`,
+      });
+    }
+  });
+  buttons.push({ text: "Дашборд", action: "/dashboard" });
+  return reply(lines.join("\n"), buttons);
+}
+
 function formatSettings(
   workspace: OperatorWorkspace,
   autoReplyOverride: boolean | undefined,
@@ -692,6 +733,9 @@ function normalizeOperatorCommand(rawInput: string): string {
     case "🕒 слоты":
     case "слоты":
       return "/slots";
+    case "🔔 напоминания":
+    case "напоминания":
+      return "/reminders";
     case "⚙️ настройки":
     case "настройки":
       return "/settings";
@@ -710,9 +754,65 @@ function normalizeOperatorCommand(rawInput: string): string {
     return `${trimmed.slice(0, separatorIndex).toLowerCase()}${trimmed.slice(separatorIndex)}`;
   }
 
+  if (trimmed.startsWith("rmd:toggle:")) {
+    const parts = trimmed.split(":");
+    if (parts.length === 4) {
+      return `reminder:toggle:${parts[2]}:${parts[3]}`;
+    }
+  }
+
   return trimmed;
 }
 
 function formatBoolean(value: boolean): string {
   return value ? "включен" : "выключен";
+}
+
+function reminderStateLabel(reminder: OperatorReminder): string {
+  if (reminder.sent) {
+    return "отправлено";
+  }
+  return reminder.enabled ? "вкл" : "выкл";
+}
+
+function toggleReminder(
+  session: OperatorSession,
+  workspace: OperatorWorkspace,
+  command: string,
+): Transition<OperatorSession> {
+  const parts = command.split(":");
+  if (parts.length !== 4) {
+    return { state: session, effects: [reply("Напоминание не найдено.", MAIN_MENU_BUTTONS)] };
+  }
+  const bookingId = parts[2]?.trim();
+  const action = parts[3]?.trim();
+  if (!bookingId || (action !== "on" && action !== "off")) {
+    return { state: session, effects: [reply("Напоминание не найдено.", MAIN_MENU_BUTTONS)] };
+  }
+
+  const reminder = workspace.reminders.find((candidate) => candidate.bookingId === bookingId);
+  if (!reminder || reminder.sent) {
+    return { state: session, effects: [formatReminders(workspace)] };
+  }
+
+  const enabled = action === "on";
+  const nextWorkspace: OperatorWorkspace = {
+    ...workspace,
+    reminders: workspace.reminders.map((candidate) =>
+      candidate.bookingId === bookingId ? { ...candidate, enabled } : candidate,
+    ),
+  };
+
+  return {
+    state: session,
+    effects: [
+      {
+        type: "booking.client_reminder_changed",
+        workspaceId: workspace.id,
+        bookingId,
+        enabled,
+      },
+      formatReminders(nextWorkspace),
+    ],
+  };
 }
