@@ -175,6 +175,49 @@ func TestTelegramOperatorCommandKeyStable(t *testing.T) {
 	}
 }
 
+func TestOperatorContextScopeForEvent(t *testing.T) {
+	tests := []struct {
+		name  string
+		event botEngineOperatorEvent
+		want  botEngineOperatorContextScope
+	}{
+		{
+			name:  "dashboard loads dashboard and settings",
+			event: botEngineOperatorEvent{Type: "message", Text: "/dashboard"},
+			want:  botEngineOperatorContextScope{Dashboard: true, Settings: true},
+		},
+		{
+			name:  "reminders only load reminders",
+			event: botEngineOperatorEvent{Type: "callback", Data: "/reminders"},
+			want:  botEngineOperatorContextScope{Reminders: true},
+		},
+		{
+			name:  "conversation actions load conversations",
+			event: botEngineOperatorEvent{Type: "callback", Data: "slots:dlg_1"},
+			want:  botEngineOperatorContextScope{Conversations: true},
+		},
+		{
+			name:  "faq loads faq scope",
+			event: botEngineOperatorEvent{Type: "message", Text: "/faq"},
+			want:  botEngineOperatorContextScope{FAQ: true},
+		},
+		{
+			name:  "start keeps base scope only",
+			event: botEngineOperatorEvent{Type: "message", Text: "/start"},
+			want:  botEngineOperatorContextScope{},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := operatorContextScopeForEvent(tt.event)
+			if got != tt.want {
+				t.Fatalf("unexpected scope: got %+v want %+v", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestBuildBotEngineReplyButtonsUsesCalendarURL(t *testing.T) {
 	server := &Server{
 		cfg: Config{

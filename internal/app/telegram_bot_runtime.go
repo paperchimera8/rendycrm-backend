@@ -278,6 +278,15 @@ type botRuntimeOperatorSnap struct {
 	Command        string `json:"command,omitempty"`
 }
 
+type botEngineOperatorContextScope struct {
+	Dashboard     bool
+	Conversations bool
+	WeekSlots     bool
+	Reminders     bool
+	Settings      bool
+	FAQ           bool
+}
+
 type botRuntimeOperatorApplyRequest struct {
 	Snapshot   botRuntimeOperatorSnap      `json:"snapshot"`
 	Transition botEngineOperatorTransition `json:"transition"`
@@ -574,9 +583,19 @@ func (s *Server) prepareTelegramOperatorRuntime(ctx context.Context, request bot
 	if err != nil {
 		return botRuntimeOperatorPrepareResponse{Skip: true}, nil
 	}
+	log.Printf(
+		"telegram inbound bot=operator stage=prepare_start update_id=%d chat_id=%s message_id=%d callback_id=%q value=%q",
+		update.UpdateID,
+		chatID,
+		messageIDFromUpdate(update),
+		callbackIDFromUpdate(update),
+		telegramLogValue(text),
+	)
 	if callbackID := callbackIDFromUpdate(update); callbackID != "" {
 		s.answerTelegramCallback(ctx, account, callbackID, "")
 	}
+	event := buildBotEngineOperatorEvent(update, text)
+	scope := operatorContextScopeForEvent(event)
 
 	binding, err := s.runtime.repository.ActiveOperatorBindingByTelegramChat(ctx, chatID)
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
@@ -601,7 +620,7 @@ func (s *Server) prepareTelegramOperatorRuntime(ctx context.Context, request bot
 		}
 	}
 
-	contextState, workspaceState, err := s.buildBotEngineOperatorContext(ctx, binding, linkBindings)
+	contextState, workspaceState, err := s.buildBotEngineOperatorContext(ctx, binding, linkBindings, scope)
 	if err != nil {
 		return botRuntimeOperatorPrepareResponse{}, err
 	}
@@ -610,7 +629,6 @@ func (s *Server) prepareTelegramOperatorRuntime(ctx context.Context, request bot
 		return botRuntimeOperatorPrepareResponse{}, err
 	}
 
-	event := buildBotEngineOperatorEvent(update, text)
 	if event.Type == "message" && strings.TrimSpace(event.Text) == "" {
 		return botRuntimeOperatorPrepareResponse{Skip: true}, nil
 	}
@@ -1296,7 +1314,7 @@ func (s *Server) enqueueTelegramCalendarReply(ctx context.Context, account Chann
 	return s.enqueueTelegramOutbound(ctx, account, kind, conversationID, "", payload, inboundMessageID, callbackID, callbackData)
 }
 
-func (s *Server) buildBotEngineOperatorContext(ctx context.Context, binding OperatorBotBinding, linkBindings []botEngineOperatorLinkBinding) (botEngineOperatorContext, *botEngineOperatorWorkspace, error) {
+func (s *Server) buildBotEngineOperatorContext(ctx context.Context, binding OperatorBotBinding, linkBindings []botEngineOperatorLinkBinding, scope botEngineOperatorContextScope) (botEngineOperatorContext, *botEngineOperatorWorkspace, error) {
 	contextState := botEngineOperatorContext{
 		LinkBindings: append([]botEngineOperatorLinkBinding(nil), linkBindings...),
 		Workspaces:   []botEngineOperatorWorkspace{},
@@ -1333,7 +1351,7 @@ func (s *Server) buildBotEngineOperatorContext(ctx context.Context, binding Oper
 	var currentWorkspace *botEngineOperatorWorkspace
 	for _, workspaceID := range workspaceIDs {
 		req := workspaceRequests[workspaceID]
-		workspaceState, err := s.buildBotEngineOperatorWorkspace(ctx, workspaceID, req.userID, req.chatID)
+		workspaceState, err := s.buildBotEngineOperatorWorkspace(ctx, workspaceID, req.userID, req.chatID, scope)
 		if err != nil {
 			return botEngineOperatorContext{}, nil, err
 		}
@@ -1346,143 +1364,158 @@ func (s *Server) buildBotEngineOperatorContext(ctx context.Context, binding Oper
 	return contextState, currentWorkspace, nil
 }
 
-func (s *Server) buildBotEngineOperatorWorkspace(ctx context.Context, workspaceID, userID, chatID string) (*botEngineOperatorWorkspace, error) {
+func (s *Server) buildBotEngineOperatorWorkspace(ctx context.Context, workspaceID, userID, chatID string, scope botEngineOperatorContextScope) (*botEngineOperatorWorkspace, error) {
 	workspace, err := s.runtime.repository.WorkspaceByID(ctx, workspaceID)
 	if err != nil {
 		return nil, err
 	}
-	dashboard, err := s.runtime.repository.Dashboard(ctx, workspaceID)
-	if err != nil {
-		return nil, err
-	}
-	bookings, err := s.runtime.repository.Bookings(ctx, workspaceID, "all")
-	if err != nil {
-		return nil, err
-	}
-	availableSlots, err := s.runtime.repository.AvailableDaySlots(ctx, workspaceID, time.Now().UTC(), time.Now().UTC().AddDate(0, 0, 14))
-	if err != nil {
-		return nil, err
-	}
-	weekSlots, err := s.runtime.repository.WeekSlots(ctx, workspaceID, time.Now().UTC())
-	if err != nil {
-		return nil, err
-	}
-	reminderBookings, err := s.runtime.repository.UpcomingReminderBookings(ctx, workspaceID, time.Now().UTC(), operatorReminderHorizon, operatorReminderListLimit)
-	if err != nil {
-		return nil, err
-	}
-	operatorSettings, err := s.runtime.repository.OperatorBotSettings(ctx, workspaceID, userID, s.cfg.OperatorBotUsername, s.cfg.PublicBaseURL)
-	if err != nil {
-		return nil, err
-	}
-	botConfig, faqItems, err := s.runtime.repository.BotConfig(ctx, workspaceID)
-	if err != nil {
-		return nil, err
-	}
-	conversations, err := s.runtime.repository.Conversations(ctx, workspaceID)
-	if err != nil {
-		return nil, err
-	}
-
-	slotOptions := make([]botEngineSlotOption, 0, min(8, len(availableSlots)))
-	for i, slot := range availableSlots {
-		if i >= 8 {
-			break
-		}
-		slotOptions = append(slotOptions, botEngineSlotOption{
-			ID:    slot.ID,
-			Label: formatTelegramSlotLabel(slot.StartsAt),
-		})
-	}
-
-	workspaceLoc := time.UTC
-	if workspace.Timezone != "" {
-		if loc, err := time.LoadLocation(workspace.Timezone); err == nil {
-			workspaceLoc = loc
-		}
+	workspaceState := &botEngineOperatorWorkspace{
+		ID:            workspace.ID,
+		Name:          workspace.Name,
+		Dashboard:     botEngineOperatorDashboard{NextSlot: "нет"},
+		Conversations: []botEngineOperatorConversation{},
+		WeekSlots:     []botEngineOperatorWeekSlot{},
+		Reminders:     []botEngineOperatorReminder{},
+		Settings: botEngineOperatorSettings{
+			TelegramChatLabel: chatID,
+			FAQQuestions:      []string{},
+		},
 	}
 
 	now := time.Now().UTC()
-	revenue := 0
-	nextSlot := "нет"
-	for _, booking := range bookings {
-		if booking.Status == BookingCancelled {
-			continue
-		}
-		if booking.Amount > 0 {
-			revenue += booking.Amount
-		}
-		if nextSlot == "нет" && booking.StartsAt.After(now) {
-			nextSlot = booking.StartsAt.In(workspaceLoc).Format("Mon 02.01 15:04")
+	var availableSlots []DailySlot
+	if scope.Dashboard || scope.Conversations {
+		availableSlots, err = s.runtime.repository.AvailableDaySlots(ctx, workspaceID, now, now.AddDate(0, 0, 14))
+		if err != nil {
+			return nil, err
 		}
 	}
-	if nextSlot == "нет" && len(availableSlots) > 0 {
-		nextSlot = availableSlots[0].StartsAt.In(workspaceLoc).Format("Mon 02.01 15:04")
-	}
-
-	operatorConversations := make([]botEngineOperatorConversation, 0, len(conversations))
-	for _, conversation := range conversations {
-		item := botEngineOperatorConversation{
-			ID:              conversation.ID,
-			Title:           conversation.Title,
-			Provider:        string(conversation.Provider),
-			CustomerName:    conversation.Title,
-			CustomerID:      conversation.CustomerID,
-			Status:          string(conversation.Status),
-			LastMessageText: conversation.LastMessageText,
-			UnreadCount:     conversation.UnreadCount,
-			SlotOptions:     append([]botEngineSlotOption(nil), slotOptions...),
+	if scope.Dashboard {
+		dashboard, err := s.runtime.repository.Dashboard(ctx, workspaceID)
+		if err != nil {
+			return nil, err
 		}
-		customer, customerErr := s.runtime.repository.Customer(ctx, workspaceID, conversation.CustomerID)
-		if customerErr == nil {
-			item.CustomerName = firstNonEmptyString(customer.Name, item.CustomerName)
-			item.CustomerPhone = customer.Phone
+		bookings, err := s.runtime.repository.Bookings(ctx, workspaceID, "all")
+		if err != nil {
+			return nil, err
 		}
-		operatorConversations = append(operatorConversations, item)
-	}
-
-	workspaceState := &botEngineOperatorWorkspace{
-		ID:   workspace.ID,
-		Name: workspace.Name,
-		Dashboard: botEngineOperatorDashboard{
+		workspaceLoc := time.UTC
+		if workspace.Timezone != "" {
+			if loc, loadErr := time.LoadLocation(workspace.Timezone); loadErr == nil {
+				workspaceLoc = loc
+			}
+		}
+		revenue := 0
+		nextSlot := "нет"
+		for _, booking := range bookings {
+			if booking.Status == BookingCancelled {
+				continue
+			}
+			if booking.Amount > 0 {
+				revenue += booking.Amount
+			}
+			if nextSlot == "нет" && booking.StartsAt.After(now) {
+				nextSlot = booking.StartsAt.In(workspaceLoc).Format("Mon 02.01 15:04")
+			}
+		}
+		if nextSlot == "нет" && len(availableSlots) > 0 {
+			nextSlot = availableSlots[0].StartsAt.In(workspaceLoc).Format("Mon 02.01 15:04")
+		}
+		workspaceState.Dashboard = botEngineOperatorDashboard{
 			TodayBookings: dashboard.TodayBookings,
 			NewMessages:   dashboard.NewMessages,
 			Revenue:       revenue,
 			FreeSlots:     len(availableSlots),
 			NextSlot:      nextSlot,
-		},
-		Conversations: operatorConversations,
-		WeekSlots:     make([]botEngineOperatorWeekSlot, 0, len(weekSlots)),
-		Reminders:     make([]botEngineOperatorReminder, 0, len(reminderBookings)),
-		Settings: botEngineOperatorSettings{
-			AutoReply:         botConfig.AutoReply,
-			HandoffEnabled:    botConfig.HandoffEnabled,
-			TelegramChatLabel: chatID,
-			WebhookURL:        operatorSettings.OperatorWebhookURL,
-			FAQQuestions:      make([]string, 0, len(faqItems)),
-		},
+		}
 	}
-	if operatorSettings.Binding != nil && strings.TrimSpace(operatorSettings.Binding.TelegramChatID) != "" {
-		workspaceState.Settings.TelegramChatLabel = operatorSettings.Binding.TelegramChatID
+	if scope.Conversations {
+		conversations, err := s.runtime.repository.Conversations(ctx, workspaceID)
+		if err != nil {
+			return nil, err
+		}
+		slotOptions := make([]botEngineSlotOption, 0, min(8, len(availableSlots)))
+		for i, slot := range availableSlots {
+			if i >= 8 {
+				break
+			}
+			slotOptions = append(slotOptions, botEngineSlotOption{
+				ID:    slot.ID,
+				Label: formatTelegramSlotLabel(slot.StartsAt),
+			})
+		}
+		operatorConversations := make([]botEngineOperatorConversation, 0, len(conversations))
+		for _, conversation := range conversations {
+			item := botEngineOperatorConversation{
+				ID:              conversation.ID,
+				Title:           conversation.Title,
+				Provider:        string(conversation.Provider),
+				CustomerName:    conversation.Title,
+				CustomerID:      conversation.CustomerID,
+				Status:          string(conversation.Status),
+				LastMessageText: conversation.LastMessageText,
+				UnreadCount:     conversation.UnreadCount,
+				SlotOptions:     append([]botEngineSlotOption(nil), slotOptions...),
+			}
+			customer, customerErr := s.runtime.repository.Customer(ctx, workspaceID, conversation.CustomerID)
+			if customerErr == nil {
+				item.CustomerName = firstNonEmptyString(customer.Name, item.CustomerName)
+				item.CustomerPhone = customer.Phone
+			}
+			operatorConversations = append(operatorConversations, item)
+		}
+		workspaceState.Conversations = operatorConversations
 	}
-	for _, day := range weekSlots {
-		workspaceState.WeekSlots = append(workspaceState.WeekSlots, botEngineOperatorWeekSlot{
-			Label:     day.Label,
-			SlotCount: len(day.Slots),
-		})
+	if scope.WeekSlots {
+		weekSlots, err := s.runtime.repository.WeekSlots(ctx, workspaceID, now)
+		if err != nil {
+			return nil, err
+		}
+		workspaceState.WeekSlots = make([]botEngineOperatorWeekSlot, 0, len(weekSlots))
+		for _, day := range weekSlots {
+			workspaceState.WeekSlots = append(workspaceState.WeekSlots, botEngineOperatorWeekSlot{
+				Label:     day.Label,
+				SlotCount: len(day.Slots),
+			})
+		}
 	}
-	for _, booking := range reminderBookings {
-		workspaceState.Reminders = append(workspaceState.Reminders, botEngineOperatorReminder{
-			BookingID:     booking.ID,
-			CustomerName:  booking.CustomerName,
-			StartsAtLabel: formatBookingReminderTime(booking.StartsAt, workspace.Timezone),
-			Enabled:       booking.ClientReminderEnabled,
-			Sent:          booking.ClientReminderSentAt != nil,
-		})
+	if scope.Reminders {
+		reminderBookings, err := s.runtime.repository.UpcomingReminderBookings(ctx, workspaceID, now, operatorReminderHorizon, operatorReminderListLimit)
+		if err != nil {
+			return nil, err
+		}
+		workspaceState.Reminders = make([]botEngineOperatorReminder, 0, len(reminderBookings))
+		for _, booking := range reminderBookings {
+			workspaceState.Reminders = append(workspaceState.Reminders, botEngineOperatorReminder{
+				BookingID:     booking.ID,
+				CustomerName:  booking.CustomerName,
+				StartsAtLabel: formatBookingReminderTime(booking.StartsAt, workspace.Timezone),
+				Enabled:       booking.ClientReminderEnabled,
+				Sent:          booking.ClientReminderSentAt != nil,
+			})
+		}
 	}
-	for _, item := range faqItems {
-		if strings.TrimSpace(item.Question) != "" {
-			workspaceState.Settings.FAQQuestions = append(workspaceState.Settings.FAQQuestions, item.Question)
+	if scope.Settings || scope.FAQ || scope.Dashboard {
+		operatorSettings, err := s.runtime.repository.OperatorBotSettings(ctx, workspaceID, userID, s.cfg.OperatorBotUsername, s.cfg.PublicBaseURL)
+		if err != nil {
+			return nil, err
+		}
+		botConfig, faqItems, err := s.runtime.repository.BotConfig(ctx, workspaceID)
+		if err != nil {
+			return nil, err
+		}
+		workspaceState.Settings.AutoReply = botConfig.AutoReply
+		workspaceState.Settings.HandoffEnabled = botConfig.HandoffEnabled
+		workspaceState.Settings.WebhookURL = operatorSettings.OperatorWebhookURL
+		if operatorSettings.Binding != nil && strings.TrimSpace(operatorSettings.Binding.TelegramChatID) != "" {
+			workspaceState.Settings.TelegramChatLabel = operatorSettings.Binding.TelegramChatID
+		}
+		if scope.FAQ {
+			for _, item := range faqItems {
+				if strings.TrimSpace(item.Question) != "" {
+					workspaceState.Settings.FAQQuestions = append(workspaceState.Settings.FAQQuestions, item.Question)
+				}
+			}
 		}
 	}
 	return workspaceState, nil
@@ -1992,6 +2025,44 @@ func operatorCommandNeedsThrottle(command string) bool {
 		return false
 	}
 	return command == "отмена" || strings.HasPrefix(command, "/")
+}
+
+func operatorContextScopeForEvent(event botEngineOperatorEvent) botEngineOperatorContextScope {
+	command := ""
+	switch event.Type {
+	case "callback":
+		command = strings.TrimSpace(event.Data)
+	case "message":
+		command = strings.TrimSpace(event.Text)
+	default:
+		return botEngineOperatorContextScope{}
+	}
+	command = normalizeOperatorCommand(command)
+	scope := botEngineOperatorContextScope{}
+	switch {
+	case command == "/dashboard":
+		scope.Dashboard = true
+		scope.Settings = true
+	case command == "/dialogs" ||
+		strings.HasPrefix(command, "/dialog ") ||
+		strings.HasPrefix(command, "dialog:") ||
+		strings.HasPrefix(command, "reply:") ||
+		strings.HasPrefix(command, "slots:") ||
+		strings.HasPrefix(command, "pickslot:") ||
+		strings.HasPrefix(command, "take:") ||
+		strings.HasPrefix(command, "auto:") ||
+		strings.HasPrefix(command, "close:"):
+		scope.Conversations = true
+	case command == "/slots":
+		scope.WeekSlots = true
+	case command == "/reminders" || strings.HasPrefix(command, "reminder:toggle:"):
+		scope.Reminders = true
+	case command == "/settings" || command == "/auto_on" || command == "/auto_off":
+		scope.Settings = true
+	case command == "/faq":
+		scope.FAQ = true
+	}
+	return scope
 }
 
 func telegramClientPromptText(welcome bool) string {
