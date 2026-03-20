@@ -43,7 +43,10 @@ function formatTime(value: string, timezone: string) {
 }
 
 function formatSlotLabel(slot: DailySlot, timezone: string) {
-  return `${formatTime(slot.startsAt, timezone)} - ${formatTime(slot.endsAt, timezone)}`;
+  return `${formatTime(slot.startsAt, timezone).replace(":", ".")}-${formatTime(
+    slot.endsAt,
+    timezone,
+  ).replace(":", ".")}`;
 }
 
 function formatDateTime(value: string, timezone: string) {
@@ -63,7 +66,7 @@ export function CalendarPage() {
     [],
   );
   const dateFrom = useMemo(() => todayLocal(), []);
-  const dateTo = useMemo(() => addDays(dateFrom, 13), [dateFrom]);
+  const dateTo = useMemo(() => addDays(dateFrom, 29), [dateFrom]);
   const calendar = usePublicCalendar(token, dateFrom, dateTo);
   const bookMutation = useBookPublicCalendarMutation();
 
@@ -191,7 +194,7 @@ export function CalendarPage() {
               subtitle={
                 groupedSlots.length > 0
                   ? `Период: ${formatDayLabel(dateFrom, timezone)} - ${formatDayLabel(dateTo, timezone)}`
-                  : "Свободные окна появятся здесь сразу после синхронизации расписания мастера."
+                  : "Покажем свободные слоты на ближайшие 30 дней, как только они появятся в календаре мастера."
               }
             >
               {groupedSlots.length === 0 ? (
@@ -200,18 +203,18 @@ export function CalendarPage() {
                   description="Попробуйте обновить страницу чуть позже или напишите мастеру прямо в Telegram."
                 />
               ) : (
-                <div className="grid gap-3 lg:grid-cols-2">
+                <div className="space-y-4">
                   {groupedSlots.map((day) => (
                     <div
                       key={day.date}
-                      className="rounded-[22px] border border-[#eee6d9] bg-[#fffdf9] p-4"
+                      className="rounded-[20px] border border-[#eee6d9] bg-[#fffdf9] p-4"
                     >
-                      <div className="mb-3">
+                      <div className="mb-3 flex items-center justify-between gap-3">
                         <h2 className="text-sm font-semibold capitalize text-[#20170f]">
                           {formatDayLabel(day.date, timezone)}
                         </h2>
-                        <p className="text-xs text-[#8b8174]">
-                          {day.items.length} слотов доступно
+                        <p className="shrink-0 text-xs text-[#8b8174]">
+                          {day.items.length} шт.
                         </p>
                       </div>
                       <div className="flex flex-wrap gap-2">
@@ -226,7 +229,7 @@ export function CalendarPage() {
                                 setSuccess("");
                                 setSelectedSlot(slot);
                               }}
-                              className={`rounded-full border px-3 py-2 text-sm transition ${
+                              className={`rounded-[14px] border px-3 py-1.5 text-xs font-medium transition sm:text-sm ${
                                 active
                                   ? "border-[#8a6f3f] bg-[#8a6f3f] text-white shadow-[0_8px_18px_rgba(138,111,63,0.25)]"
                                   : "border-[#e8dcc8] bg-white text-[#3a3127] hover:border-[#c9b28a] hover:bg-[#fff8ed]"
