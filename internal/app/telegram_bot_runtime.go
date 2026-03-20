@@ -18,6 +18,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/redis/go-redis/v9"
 	"github.com/vital/rendycrm-app/internal/domain"
 	tgapi "github.com/vital/rendycrm-app/internal/telegram"
 	"github.com/vital/rendycrm-app/internal/usecase"
@@ -34,6 +35,7 @@ const (
 	telegramInboundDeliveryCooldown = 2 * time.Minute
 	telegramOperatorCommandCooldown = 30 * time.Second
 	telegramOperatorReplyCooldown   = 30 * time.Second
+	telegramOperatorMenuMessageTTL  = 90 * 24 * time.Hour
 	telegramPromptCooldown          = 45 * time.Second
 )
 
@@ -1227,7 +1229,7 @@ func (s *Server) enqueueBotEngineReply(ctx context.Context, account ChannelAccou
 		payload.MessageID = inboundMessageID
 	}
 	if account.ChannelKind == ChannelKindTelegramOperator && strings.TrimSpace(callbackID) == "" && len(payload.Buttons) > 0 {
-		messageID, err := s.runtime.repository.LatestTelegramRuntimeMessageID(ctx, account.ID, chatID)
+		messageID, err := s.loadTelegramOperatorRuntimeMessageID(ctx, account.ID, chatID)
 		switch {
 		case err == nil && messageID > 0:
 			kind = OutboundKindTelegramEditInline
@@ -1271,6 +1273,54 @@ func (s *Server) enqueueBotEngineReply(ctx context.Context, account ChannelAccou
 		}
 	}
 	return s.enqueueTelegramOutbound(ctx, account, kind, "", "", payload, inboundMessageID, callbackID, callbackData)
+}
+
+func telegramOperatorMenuMessageKey(accountID, chatID string) string {
+	if strings.TrimSpace(accountID) == "" || strings.TrimSpace(chatID) == "" {
+		return ""
+	}
+	return "tg:operator:lastmsg:" + strings.TrimSpace(accountID) + ":" + strings.TrimSpace(chatID)
+}
+
+func (s *Server) loadTelegramOperatorRuntimeMessageID(ctx context.Context, accountID, chatID string) (int64, error) {
+	if strings.TrimSpace(accountID) == "" || strings.TrimSpace(chatID) == "" {
+		return 0, sql.ErrNoRows
+	}
+	if s != nil && s.runtime != nil && s.runtime.redis != nil {
+		key := telegramOperatorMenuMessageKey(accountID, chatID)
+		if key != "" {
+			raw, err := s.runtime.redis.Get(ctx, key).Result()
+			switch {
+			case err == nil:
+				messageID, parseErr := strconv.ParseInt(strings.TrimSpace(raw), 10, 64)
+				if parseErr == nil && messageID > 0 {
+					return messageID, nil
+				}
+			case errors.Is(err, redis.Nil):
+			default:
+				log.Printf("telegram operator menu cache read failed account_id=%s chat_id=%s: %v", accountID, chatID, err)
+			}
+		}
+	}
+	messageID, err := s.runtime.repository.LatestTelegramRuntimeMessageID(ctx, accountID, chatID)
+	if err != nil {
+		return 0, err
+	}
+	s.rememberTelegramOperatorRuntimeMessageID(ctx, accountID, chatID, messageID)
+	return messageID, nil
+}
+
+func (s *Server) rememberTelegramOperatorRuntimeMessageID(ctx context.Context, accountID, chatID string, messageID int64) {
+	if messageID <= 0 || s == nil || s.runtime == nil || s.runtime.redis == nil {
+		return
+	}
+	key := telegramOperatorMenuMessageKey(accountID, chatID)
+	if key == "" {
+		return
+	}
+	if err := s.runtime.redis.Set(ctx, key, strconv.FormatInt(messageID, 10), telegramOperatorMenuMessageTTL).Err(); err != nil {
+		log.Printf("telegram operator menu cache write failed account_id=%s chat_id=%s message_id=%d: %v", accountID, chatID, messageID, err)
+	}
 }
 
 func botEngineReplyOutboundKind(account ChannelAccount, inboundMessageID int64, callbackID string, buttons []TelegramInlineButton) OutboundKind {

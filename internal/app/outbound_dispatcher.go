@@ -174,7 +174,11 @@ func (s *Server) dispatchOutboundMessage(ctx context.Context, item OutboundMessa
 		return fmt.Errorf("unsupported outbound kind %s", item.Kind)
 	}
 
-	return s.runtime.repository.MarkOutboundMessageSent(ctx, item.ID, providerMessageID)
+	if err := s.runtime.repository.MarkOutboundMessageSent(ctx, item.ID, providerMessageID); err != nil {
+		return err
+	}
+	s.rememberTelegramOperatorMenuMessage(ctx, item, payload, providerMessageID)
+	return nil
 }
 
 func isTelegramEditNoopError(err error) bool {
@@ -232,6 +236,17 @@ func shouldFallbackTelegramEditToSend(err error) bool {
 		return false
 	}
 	return apiErr.StatusCode == 400
+}
+
+func (s *Server) rememberTelegramOperatorMenuMessage(ctx context.Context, item OutboundMessage, payload TelegramOutboundPayload, providerMessageID string) {
+	if item.ChannelKind != ChannelKindTelegramOperator || strings.TrimSpace(payload.ChatID) == "" || len(payload.Buttons) == 0 {
+		return
+	}
+	messageID, err := strconv.ParseInt(strings.TrimSpace(providerMessageID), 10, 64)
+	if err != nil || messageID <= 0 {
+		return
+	}
+	s.rememberTelegramOperatorRuntimeMessageID(ctx, item.ChannelAccountID, payload.ChatID, messageID)
 }
 
 func (s *Server) retryOutboundMessage(ctx context.Context, item OutboundMessage, err error) error {
