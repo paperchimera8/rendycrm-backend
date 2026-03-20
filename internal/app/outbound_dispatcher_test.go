@@ -69,3 +69,32 @@ func TestShouldFallbackTelegramEditToSendRejectsNon400(t *testing.T) {
 		}
 	}
 }
+
+func TestShouldConfirmTelegramEdit(t *testing.T) {
+	err := &tgapi.APIError{
+		Method:      "editMessageText",
+		StatusCode:  400,
+		Description: "Bad Request",
+	}
+
+	if !shouldConfirmTelegramEdit(err) {
+		t.Fatal("expected 400 edit error to be confirmed with a second edit attempt")
+	}
+}
+
+func TestShouldConfirmTelegramEditRejectsNon400(t *testing.T) {
+	tests := []error{
+		errors.New("boom"),
+		&tgapi.APIError{
+			Method:      "editMessageText",
+			StatusCode:  429,
+			Description: "Too Many Requests",
+		},
+	}
+
+	for _, err := range tests {
+		if shouldConfirmTelegramEdit(err) {
+			t.Fatalf("did not expect error %v to trigger edit confirmation", err)
+		}
+	}
+}

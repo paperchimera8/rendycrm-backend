@@ -125,16 +125,25 @@ func (s *Server) dispatchOutboundMessage(ctx context.Context, item OutboundMessa
 		providerMessageID = fmt.Sprintf("%d", res.MessageID)
 	case OutboundKindTelegramEditInline:
 		rows := telegramInlineKeyboardRows(payload.Buttons)
-		res, err := s.runtime.telegram.EditInline(ctx, token, tgapi.EditMessageTextRequest{
+		request := tgapi.EditMessageTextRequest{
 			ChatID:      payload.ChatID,
 			MessageID:   payload.MessageID,
 			Text:        payload.Text,
 			ReplyMarkup: tgapi.InlineKeyboardMarkup{InlineKeyboard: rows},
-		})
+		}
+		res, err := s.runtime.telegram.EditInline(ctx, token, request)
 		if err != nil {
 			if isTelegramEditNoopError(err) {
 				providerMessageID = strconv.FormatInt(payload.MessageID, 10)
 				break
+			}
+			if shouldConfirmTelegramEdit(err) {
+				confirmedMessageID, confirmErr := s.confirmTelegramEdit(ctx, token, request)
+				if confirmErr == nil {
+					providerMessageID = confirmedMessageID
+					break
+				}
+				err = confirmErr
 			}
 			if payload.EditFallbackToSend && shouldFallbackTelegramEditToSend(err) {
 				sendRes, sendErr := s.runtime.telegram.SendInline(ctx, token, payload.ChatID, payload.Text, rows)
@@ -172,6 +181,25 @@ func isTelegramEditNoopError(err error) bool {
 		return false
 	}
 	return strings.Contains(strings.ToLower(strings.TrimSpace(apiErr.Description)), "message is not modified")
+}
+
+func shouldConfirmTelegramEdit(err error) bool {
+	var apiErr *tgapi.APIError
+	if !errors.As(err, &apiErr) {
+		return false
+	}
+	return apiErr.StatusCode == 400
+}
+
+func (s *Server) confirmTelegramEdit(ctx context.Context, token string, request tgapi.EditMessageTextRequest) (string, error) {
+	res, err := s.runtime.telegram.EditInline(ctx, token, request)
+	if err == nil {
+		return fmt.Sprintf("%d", res.MessageID), nil
+	}
+	if isTelegramEditNoopError(err) {
+		return strconv.FormatInt(request.MessageID, 10), nil
+	}
+	return "", err
 }
 
 func shouldFallbackTelegramEditToSend(err error) bool {
