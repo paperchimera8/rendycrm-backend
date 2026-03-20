@@ -477,6 +477,16 @@ func (r *Repository) AvailableDaySlots(ctx context.Context, workspaceID string, 
 	if err := r.EnsureSlotSystem(ctx, workspaceID); err != nil {
 		return nil, err
 	}
+	if !to.After(from) {
+		return []DailySlot{}, nil
+	}
+	materialized, err := r.daySlotsBetween(ctx, workspaceID, from, to, false)
+	if err != nil {
+		return nil, err
+	}
+	if len(materialized) > 0 {
+		return filterAvailableDailySlots(materialized, from, to), nil
+	}
 	settings, err := r.SlotSettings(ctx, workspaceID)
 	if err != nil {
 		return nil, err
@@ -547,7 +557,33 @@ func (r *Repository) AvailableDaySlots(ctx context.Context, workspaceID string, 
 		}
 		return items[i].StartsAt.Before(items[j].StartsAt)
 	})
-	return items, nil
+	return filterAvailableDailySlots(items, from, to), nil
+}
+
+func filterAvailableDailySlots(slots []DailySlot, from, to time.Time) []DailySlot {
+	if len(slots) == 0 {
+		return []DailySlot{}
+	}
+	items := make([]DailySlot, 0, len(slots))
+	for _, slot := range slots {
+		if slot.Status != DailySlotFree {
+			continue
+		}
+		if slot.StartsAt.Before(from) {
+			continue
+		}
+		if !slot.StartsAt.Before(to) {
+			continue
+		}
+		items = append(items, slot)
+	}
+	sort.Slice(items, func(i, j int) bool {
+		if items[i].StartsAt.Equal(items[j].StartsAt) {
+			return items[i].ID < items[j].ID
+		}
+		return items[i].StartsAt.Before(items[j].StartsAt)
+	})
+	return items
 }
 
 func (r *Repository) CreateDaySlot(ctx context.Context, workspaceID string, daySlot DailySlot) (DailySlot, error) {
