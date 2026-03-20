@@ -894,7 +894,7 @@ func (s *Server) loadBotEngineSlotOptions(ctx context.Context, workspaceID strin
 	if strings.TrimSpace(workspaceID) == "" {
 		return nil, nil
 	}
-	slots, err := s.runtime.repository.AvailableDaySlots(ctx, workspaceID, time.Now().UTC(), time.Now().UTC().AddDate(0, 0, 14))
+	slots, err := s.runtime.repository.FreeDaySlotsBetween(ctx, workspaceID, time.Now().UTC(), time.Now().UTC().AddDate(0, 0, 14))
 	if err != nil {
 		return nil, err
 	}
