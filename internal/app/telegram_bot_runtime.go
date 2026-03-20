@@ -1222,9 +1222,9 @@ func (s *Server) enqueueBotEngineReply(ctx context.Context, account ChannelAccou
 		Text:    effect.Text,
 		Buttons: s.buildBotEngineReplyButtons(account, chatID, state, effect.Buttons),
 	}
-	kind := OutboundKindTelegramSendText
-	if len(payload.Buttons) > 0 {
-		kind = OutboundKindTelegramSendInline
+	kind := botEngineReplyOutboundKind(account, inboundMessageID, callbackID, payload.Buttons)
+	if kind == OutboundKindTelegramEditInline {
+		payload.MessageID = inboundMessageID
 	}
 	if account.ChannelKind == ChannelKindTelegramOperator && s != nil && s.runtime != nil && s.runtime.redis != nil {
 		replyKey := telegramOperatorReplyKey(account.ID, chatID, inboundMessageID, callbackData, payload)
@@ -1240,6 +1240,16 @@ func (s *Server) enqueueBotEngineReply(ctx context.Context, account ChannelAccou
 		}
 	}
 	return s.enqueueTelegramOutbound(ctx, account, kind, "", "", payload, inboundMessageID, callbackID, callbackData)
+}
+
+func botEngineReplyOutboundKind(account ChannelAccount, inboundMessageID int64, callbackID string, buttons []TelegramInlineButton) OutboundKind {
+	if account.ChannelKind == ChannelKindTelegramOperator && inboundMessageID != 0 && strings.TrimSpace(callbackID) != "" {
+		return OutboundKindTelegramEditInline
+	}
+	if len(buttons) > 0 {
+		return OutboundKindTelegramSendInline
+	}
+	return OutboundKindTelegramSendText
 }
 
 func (s *Server) buildBotEngineReplyButtons(account ChannelAccount, chatID string, state *botEngineClientSession, buttons []botEngineButton) []TelegramInlineButton {

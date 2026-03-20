@@ -146,6 +146,51 @@ func TestTelegramOperatorReplyKeyUsesSourceMessageAndAction(t *testing.T) {
 	}
 }
 
+func TestBotEngineReplyOutboundKindEditsOperatorCallbackReplies(t *testing.T) {
+	account := ChannelAccount{
+		ID:          "cha_operator_tg",
+		ChannelKind: ChannelKindTelegramOperator,
+	}
+
+	got := botEngineReplyOutboundKind(account, 175, "cbq-1", []TelegramInlineButton{
+		{Text: "Дашборд", CallbackData: "/dashboard"},
+	})
+
+	if got != OutboundKindTelegramEditInline {
+		t.Fatalf("expected operator callback reply to use edit inline, got %s", got)
+	}
+}
+
+func TestBotEngineReplyOutboundKindKeepsOperatorMessagesAsNewMessages(t *testing.T) {
+	account := ChannelAccount{
+		ID:          "cha_operator_tg",
+		ChannelKind: ChannelKindTelegramOperator,
+	}
+
+	got := botEngineReplyOutboundKind(account, 175, "", []TelegramInlineButton{
+		{Text: "Дашборд", CallbackData: "/dashboard"},
+	})
+
+	if got != OutboundKindTelegramSendInline {
+		t.Fatalf("expected operator non-callback reply to send inline, got %s", got)
+	}
+}
+
+func TestBotEngineReplyOutboundKindKeepsClientCallbacksAsInlineMessages(t *testing.T) {
+	account := ChannelAccount{
+		ID:          "cha_client_tg",
+		ChannelKind: ChannelKindTelegramClient,
+	}
+
+	got := botEngineReplyOutboundKind(account, 287, "cbq-1", []TelegramInlineButton{
+		{Text: "Ввести номер мастера", CallbackData: "client:enter_master_phone"},
+	})
+
+	if got != OutboundKindTelegramSendInline {
+		t.Fatalf("expected client callback reply to keep send inline, got %s", got)
+	}
+}
+
 func TestOperatorCommandNeedsThrottle(t *testing.T) {
 	if !operatorCommandNeedsThrottle("/start") {
 		t.Fatal("expected /start to be throttled")

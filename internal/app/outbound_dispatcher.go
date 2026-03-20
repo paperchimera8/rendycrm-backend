@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"strconv"
 	"strings"
 	"time"
 
@@ -131,6 +132,10 @@ func (s *Server) dispatchOutboundMessage(ctx context.Context, item OutboundMessa
 			ReplyMarkup: tgapi.InlineKeyboardMarkup{InlineKeyboard: rows},
 		})
 		if err != nil {
+			if isTelegramEditNoopError(err) {
+				providerMessageID = strconv.FormatInt(payload.MessageID, 10)
+				break
+			}
 			return s.retryOutboundMessage(ctx, item, err)
 		}
 		providerMessageID = fmt.Sprintf("%d", res.MessageID)
@@ -148,6 +153,17 @@ func (s *Server) dispatchOutboundMessage(ctx context.Context, item OutboundMessa
 	}
 
 	return s.runtime.repository.MarkOutboundMessageSent(ctx, item.ID, providerMessageID)
+}
+
+func isTelegramEditNoopError(err error) bool {
+	var apiErr *tgapi.APIError
+	if !errors.As(err, &apiErr) {
+		return false
+	}
+	if apiErr.StatusCode != 400 {
+		return false
+	}
+	return strings.Contains(strings.ToLower(strings.TrimSpace(apiErr.Description)), "message is not modified")
 }
 
 func (s *Server) retryOutboundMessage(ctx context.Context, item OutboundMessage, err error) error {
