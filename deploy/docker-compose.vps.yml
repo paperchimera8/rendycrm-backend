@@ -8,6 +8,8 @@ services:
     environment:
       PORT: "8080"
       STATIC_DIR: "/web"
+      BOT_RUNTIME_BASE_URL: "http://bot-ts:3100"
+      BOT_RUNTIME_INTERNAL_TOKEN: ${BOT_RUNTIME_INTERNAL_TOKEN:-change-me-in-production}
       POSTGRES_DSN: ${POSTGRES_DSN:-}
       POSTGRES_HOST: ${POSTGRES_HOST:-}
       POSTGRES_PORT: ${POSTGRES_PORT:-5432}
@@ -27,6 +29,21 @@ services:
       APP_ENCRYPTION_SECRET: ${APP_ENCRYPTION_SECRET:-change-me-in-production}
       ENABLE_DEMO_SEED: ${ENABLE_DEMO_SEED:-false}
       CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-}
+    restart: unless-stopped
+
+  bot-ts:
+    build:
+      context: ..
+      dockerfile: apps/bot-ts/Dockerfile
+    expose:
+      - "3100"
+    environment:
+      PORT: "3100"
+      GO_API_BASE_URL: "http://api:8080"
+      BOT_RUNTIME_INTERNAL_TOKEN: ${BOT_RUNTIME_INTERNAL_TOKEN:-change-me-in-production}
+    depends_on:
+      api:
+        condition: service_started
     restart: unless-stopped
 
   web:

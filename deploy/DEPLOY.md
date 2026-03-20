@@ -30,6 +30,7 @@ PUBLIC_BASE_URL=https://your-domain.com/api
 
 APP_ENCRYPTION_SECRET=change-me-to-a-long-random-secret
 ENABLE_DEMO_SEED=false
+BOT_RUNTIME_INTERNAL_TOKEN=change-me-to-a-long-random-secret
 
 POSTGRES_HOST=your-postgres-host
 POSTGRES_PORT=5432
@@ -77,3 +78,8 @@ docker compose -f deploy/docker-compose.vps.yml up -d --build
 
 - `8081` — фронтенд (nginx)
 - `3000` — backend API
+
+## Важно
+
+- `bot-ts` поднимается в том же compose-стеке и обязателен для Telegram client/operator bot.
+- Если обновили код бота, но не пересобрали весь compose-стек, Telegram-кнопки и логика меню останутся старыми.

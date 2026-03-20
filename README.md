@@ -9,7 +9,7 @@ Demo operator center with persistent runtime:
 
 ## GitHub Auto-Deploy
 
-For services that deploy directly from GitHub, this repository should use the root [Dockerfile](/Users/vital/Documents/rendycrm-app/Dockerfile), not `docker-compose`.
+For services that deploy directly from GitHub, this repository should use the root `Dockerfile`, not `docker-compose`.
 
 The app container serves the backend and the compiled frontend from one image.
 For that mode you need to provide external infrastructure through environment variables:
@@ -20,9 +20,11 @@ For that mode you need to provide external infrastructure through environment va
 - `APP_ENCRYPTION_SECRET`
 - `PUBLIC_BASE_URL`
 
+This mode does not include the separate `bot-ts` runtime. If you need Telegram client/operator bots, use the compose topology below or deploy `apps/bot-ts` as a separate service.
+
 ## Run With Docker Compose
 
-For VPS or local `docker compose`, use [deploy/docker-compose.vps.yml](/Users/vital/Documents/rendycrm-app/deploy/docker-compose.vps.yml).
+For VPS or local `docker compose`, use `deploy/docker-compose.vps.yml`.
 
 The runtime topology is:
 
@@ -30,6 +32,7 @@ The runtime topology is:
 - `web` proxies `/api/*` to `api`
 - `api` connects to an external PostgreSQL instance
 - `api` connects to an external Redis instance
+- `bot-ts` runs the Telegram client/operator runtime and receives internal webhook proxy requests from `api`
 
 Start everything:
 
@@ -54,6 +57,7 @@ Main env knobs for compose:
 - `POSTGRES_SSLMODE` — `prefer`, `require`, or `verify-full`
 - `POSTGRES_SSLROOTCERT_URL` — optional URL for downloading the CA cert inside the container before startup
 - `REDIS_HOST`, `REDIS_PORT`, `REDIS_USERNAME`, `REDIS_PASSWORD`, `REDIS_DB`
+- `BOT_RUNTIME_INTERNAL_TOKEN` — shared secret between `api` and `bot-ts`
 
 ## Seed credentials
 
