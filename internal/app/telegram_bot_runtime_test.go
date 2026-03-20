@@ -3,6 +3,8 @@ package app
 import (
 	"strings"
 	"testing"
+
+	tgapi "github.com/vital/rendycrm-app/internal/telegram"
 )
 
 func TestTelegramOutboundDedupIdentityUsesMessageIDWhenCallbackMissing(t *testing.T) {
@@ -172,6 +174,38 @@ func TestTelegramOperatorCommandKeyStable(t *testing.T) {
 	}
 	if first == third {
 		t.Fatalf("expected different commands to produce different keys, got %q", first)
+	}
+}
+
+func TestTelegramOperatorCommandForUpdateUsesCallbackMenuCommands(t *testing.T) {
+	update := tgapi.Update{
+		CallbackQuery: &tgapi.CallbackQuery{
+			Data: "/dashboard",
+			Message: &tgapi.Message{
+				MessageID: 42,
+				Chat:      tgapi.Chat{ID: 1348661149},
+			},
+		},
+	}
+
+	if got := telegramOperatorCommandForUpdate(update, "/dashboard"); got != "/dashboard" {
+		t.Fatalf("expected callback dashboard command to be throttled, got %q", got)
+	}
+}
+
+func TestTelegramOperatorCommandForUpdateSkipsNonMenuCallbacks(t *testing.T) {
+	update := tgapi.Update{
+		CallbackQuery: &tgapi.CallbackQuery{
+			Data: "reminder:toggle:bok_1:on",
+			Message: &tgapi.Message{
+				MessageID: 42,
+				Chat:      tgapi.Chat{ID: 1348661149},
+			},
+		},
+	}
+
+	if got := telegramOperatorCommandForUpdate(update, "reminder:toggle:bok_1:on"); got != "" {
+		t.Fatalf("expected non-menu callback command to skip global throttling, got %q", got)
 	}
 }
 

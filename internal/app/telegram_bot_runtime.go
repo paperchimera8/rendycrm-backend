@@ -2165,6 +2165,10 @@ func normalizeOperatorCommand(text string) string {
 
 func telegramOperatorCommandForUpdate(update tgapi.Update, text string) string {
 	if update.CallbackQuery != nil {
+		command := normalizeOperatorCommand(callbackDataFromUpdate(update))
+		if operatorCommandNeedsThrottle(command) {
+			return command
+		}
 		return ""
 	}
 	return normalizeOperatorCommand(text)
