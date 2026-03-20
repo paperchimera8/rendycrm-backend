@@ -32,6 +32,7 @@ const (
 	botRuntimeOperatorSessionTTL    = 15 * time.Minute
 	telegramCallbackActionCooldown  = 10 * time.Second
 	telegramInboundDeliveryCooldown = 2 * time.Minute
+	telegramOperatorReplyCooldown   = 10 * time.Second
 	telegramPromptCooldown          = 45 * time.Second
 )
 
@@ -926,7 +927,7 @@ func (s *Server) applyBotEngineClientTransition(ctx context.Context, account Cha
 func (s *Server) applyBotEngineClientEffect(ctx context.Context, account ChannelAccount, inbound telegramClientInbound, state botEngineClientSession, effect botEngineEffect) error {
 	switch effect.Type {
 	case "reply":
-		return s.enqueueBotEngineReply(ctx, account, inbound.chatID, &state, effect, inbound.messageID, inbound.callbackID)
+		return s.enqueueBotEngineReply(ctx, account, inbound.chatID, &state, effect, inbound.messageID, inbound.callbackID, inbound.callbackData)
 	case "configuration.error":
 		log.Printf("telegram bot runtime configuration error bot=%s account_id=%s message=%q", effect.Bot, account.ID, effect.Message)
 		return nil
@@ -952,7 +953,7 @@ func (s *Server) applyBotEngineClientEffect(ctx context.Context, account Channel
 func (s *Server) applyBotEngineClientCRMEffect(ctx context.Context, account ChannelAccount, inbound telegramClientInbound, effect botEngineEffect) error {
 	targetWorkspaceID := strings.TrimSpace(effect.WorkspaceID)
 	if account.AccountScope == ChannelAccountScopeGlobal && targetWorkspaceID == "" {
-		return s.enqueueTelegramMasterPhonePrompt(ctx, account, inbound.chatID, false, inbound.messageID, inbound.callbackID)
+		return s.enqueueTelegramMasterPhonePrompt(ctx, account, inbound.chatID, false, inbound.messageID, inbound.callbackID, inbound.callbackData)
 	}
 	if targetWorkspaceID == "" {
 		targetWorkspaceID = account.WorkspaceID
@@ -991,7 +992,7 @@ func (s *Server) applyBotEngineClientBookingPending(ctx context.Context, account
 	})
 	if err != nil {
 		if strings.Contains(err.Error(), "slot unavailable") {
-			return s.enqueueTelegramCalendarReply(ctx, account, inbound.chatID, workspaceID, conversation.ID, "Этот слот уже недоступен. Откройте календарь и выберите другое время.", inbound.messageID, inbound.callbackID)
+			return s.enqueueTelegramCalendarReply(ctx, account, inbound.chatID, workspaceID, conversation.ID, "Этот слот уже недоступен. Откройте календарь и выберите другое время.", inbound.messageID, inbound.callbackID, inbound.callbackData)
 		}
 		return err
 	}
@@ -1058,7 +1059,7 @@ func (s *Server) applyBotEngineClientBookingConfirmed(ctx context.Context, accou
 	actor := domain.Actor{Kind: domain.ActorCustomerBot, WorkspaceID: workspaceID}
 	if _, err := s.runtime.services.Bookings.ConfirmBooking(ctx, actor, workspaceID, payload.BookingID, 0, firstNonEmptyString(payload.ConversationID, conversation.ID)); err != nil {
 		if strings.Contains(err.Error(), "slot unavailable") {
-			return s.enqueueTelegramCalendarReply(ctx, account, inbound.chatID, workspaceID, conversation.ID, "Слот уже недоступен. Откройте календарь и выберите другое время.", inbound.messageID, inbound.callbackID)
+			return s.enqueueTelegramCalendarReply(ctx, account, inbound.chatID, workspaceID, conversation.ID, "Слот уже недоступен. Откройте календарь и выберите другое время.", inbound.messageID, inbound.callbackID, inbound.callbackData)
 		}
 		return err
 	}
@@ -1186,7 +1187,7 @@ func (s *Server) ensureTelegramClientConversation(ctx context.Context, account C
 	return s.runtime.repository.ConversationByExternalChat(ctx, workspaceID, ChannelTelegram, inbound.chatID)
 }
 
-func (s *Server) enqueueBotEngineReply(ctx context.Context, account ChannelAccount, chatID string, state *botEngineClientSession, effect botEngineEffect, inboundMessageID int64, callbackID string) error {
+func (s *Server) enqueueBotEngineReply(ctx context.Context, account ChannelAccount, chatID string, state *botEngineClientSession, effect botEngineEffect, inboundMessageID int64, callbackID, callbackData string) error {
 	payload := TelegramOutboundPayload{
 		ChatID:  chatID,
 		Text:    effect.Text,
@@ -1196,7 +1197,20 @@ func (s *Server) enqueueBotEngineReply(ctx context.Context, account ChannelAccou
 	if len(payload.Buttons) > 0 {
 		kind = OutboundKindTelegramSendInline
 	}
-	return s.enqueueTelegramOutbound(ctx, account, kind, "", "", payload, inboundMessageID, callbackID)
+	if account.ChannelKind == ChannelKindTelegramOperator && s != nil && s.runtime != nil && s.runtime.redis != nil {
+		replyKey := telegramOperatorReplyKey(account.ID, chatID, payload)
+		if replyKey != "" {
+			freshReply, err := s.runtime.redis.SetNX(ctx, replyKey, "1", telegramOperatorReplyCooldown).Result()
+			if err != nil {
+				return err
+			}
+			if !freshReply {
+				log.Printf("telegram operator reply skipped duplicate account_id=%s chat_id=%s buttons=%d text=%q", account.ID, chatID, len(payload.Buttons), telegramLogValue(payload.Text))
+				return nil
+			}
+		}
+	}
+	return s.enqueueTelegramOutbound(ctx, account, kind, "", "", payload, inboundMessageID, callbackID, callbackData)
 }
 
 func (s *Server) buildBotEngineReplyButtons(account ChannelAccount, chatID string, state *botEngineClientSession, buttons []botEngineButton) []TelegramInlineButton {
@@ -1228,7 +1242,7 @@ func (s *Server) buildBotEngineReplyButtons(account ChannelAccount, chatID strin
 	return result
 }
 
-func (s *Server) enqueueTelegramCalendarReply(ctx context.Context, account ChannelAccount, chatID, workspaceID, conversationID, text string, inboundMessageID int64, callbackID string) error {
+func (s *Server) enqueueTelegramCalendarReply(ctx context.Context, account ChannelAccount, chatID, workspaceID, conversationID, text string, inboundMessageID int64, callbackID, callbackData string) error {
 	payload := TelegramOutboundPayload{
 		ChatID: chatID,
 		Text:   text,
@@ -1245,7 +1259,7 @@ func (s *Server) enqueueTelegramCalendarReply(ctx context.Context, account Chann
 	if len(payload.Buttons) > 0 {
 		kind = OutboundKindTelegramSendInline
 	}
-	return s.enqueueTelegramOutbound(ctx, account, kind, conversationID, "", payload, inboundMessageID, callbackID)
+	return s.enqueueTelegramOutbound(ctx, account, kind, conversationID, "", payload, inboundMessageID, callbackID, callbackData)
 }
 
 func (s *Server) buildBotEngineOperatorContext(ctx context.Context, binding OperatorBotBinding, linkBindings []botEngineOperatorLinkBinding) (botEngineOperatorContext, *botEngineOperatorWorkspace, error) {
@@ -1508,7 +1522,7 @@ func (s *Server) applyBotEngineOperatorTransition(ctx context.Context, account C
 func (s *Server) applyBotEngineOperatorEffect(ctx context.Context, account ChannelAccount, snapshot botRuntimeOperatorSnap, binding *OperatorBotBinding, effect botEngineEffect) error {
 	switch effect.Type {
 	case "reply":
-		return s.enqueueBotEngineReply(ctx, account, snapshot.ChatID, nil, effect, snapshot.MessageID, snapshot.CallbackID)
+		return s.enqueueBotEngineReply(ctx, account, snapshot.ChatID, nil, effect, snapshot.MessageID, snapshot.CallbackID, snapshot.CallbackData)
 	case "configuration.error":
 		log.Printf("telegram bot runtime configuration error bot=%s workspace_id=%s message=%q", effect.Bot, effect.WorkspaceID, effect.Message)
 		return nil
@@ -1669,11 +1683,11 @@ func (s *Server) telegramWebhookURL(account ChannelAccount) (string, error) {
 	}
 }
 
-func (s *Server) enqueueTelegramOutbound(ctx context.Context, account ChannelAccount, kind OutboundKind, conversationID, messageID string, payload TelegramOutboundPayload, inboundMessageID int64, callbackID string) error {
+func (s *Server) enqueueTelegramOutbound(ctx context.Context, account ChannelAccount, kind OutboundKind, conversationID, messageID string, payload TelegramOutboundPayload, inboundMessageID int64, callbackID, callbackData string) error {
 	if account.ID == "" {
 		return errors.New("telegram channel account is empty")
 	}
-	dedupKey := telegramOutboundDedupKey(account, payload.ChatID, inboundMessageID, callbackID, kind, conversationID, messageID, payload)
+	dedupKey := telegramOutboundDedupKey(account, payload.ChatID, inboundMessageID, callbackID, callbackData, kind, conversationID, messageID, payload)
 	_, inserted, err := s.runtime.repository.EnqueueOutboundMessage(ctx, OutboundMessage{
 		WorkspaceID:      account.WorkspaceID,
 		Channel:          account.Provider,
@@ -1719,7 +1733,7 @@ func (s *Server) enqueueTelegramOutbound(ctx context.Context, account ChannelAcc
 	return nil
 }
 
-func (s *Server) enqueueTelegramMasterPhonePrompt(ctx context.Context, account ChannelAccount, chatID string, welcome bool, inboundMessageID int64, callbackID string) error {
+func (s *Server) enqueueTelegramMasterPhonePrompt(ctx context.Context, account ChannelAccount, chatID string, welcome bool, inboundMessageID int64, callbackID, callbackData string) error {
 	if s.runtime == nil || s.runtime.redis == nil {
 		return s.enqueueTelegramOutbound(ctx, account, OutboundKindTelegramSendInline, "", "", TelegramOutboundPayload{
 			ChatID: chatID,
@@ -1727,7 +1741,7 @@ func (s *Server) enqueueTelegramMasterPhonePrompt(ctx context.Context, account C
 			Buttons: []TelegramInlineButton{
 				{Text: "Ввести номер мастера", CallbackData: "client:enter_master_phone"},
 			},
-		}, inboundMessageID, callbackID)
+		}, inboundMessageID, callbackID, callbackData)
 	}
 	text := telegramClientPromptText(welcome)
 	freshPrompt, err := s.runtime.redis.SetNX(ctx, telegramClientPromptKey(account.ID, chatID, text), "1", telegramPromptCooldown).Result()
@@ -1743,7 +1757,7 @@ func (s *Server) enqueueTelegramMasterPhonePrompt(ctx context.Context, account C
 		Buttons: []TelegramInlineButton{
 			{Text: "Ввести номер мастера", CallbackData: "client:enter_master_phone"},
 		},
-	}, inboundMessageID, callbackID)
+	}, inboundMessageID, callbackID, callbackData)
 }
 
 func (s *Server) answerTelegramCallback(ctx context.Context, account ChannelAccount, callbackID, text string) {
@@ -1782,7 +1796,7 @@ func (s *Server) notifyOperatorsAboutConversation(ctx context.Context, conversat
 				{Text: "Ответить", CallbackData: "dlg:reply:" + conversation.ID},
 				{Text: "Слоты", CallbackData: "slot:list:" + conversation.ID},
 			},
-		}, 0, "")
+		}, 0, "", "")
 	}
 }
 
@@ -1822,11 +1836,11 @@ func telegramInboundDeliveryKey(accountID string, botKind ChannelKind, chatID st
 	return fmt.Sprintf("tg:upd:%s:%s:%s:msg:%d", strings.TrimSpace(accountID), strings.TrimSpace(string(botKind)), strings.TrimSpace(chatID), messageID)
 }
 
-func telegramOutboundDedupKey(account ChannelAccount, chatID string, inboundMessageID int64, callbackID string, kind OutboundKind, conversationID, messageID string, payload TelegramOutboundPayload) string {
+func telegramOutboundDedupKey(account ChannelAccount, chatID string, inboundMessageID int64, callbackID, callbackData string, kind OutboundKind, conversationID, messageID string, payload TelegramOutboundPayload) string {
 	if strings.TrimSpace(account.ID) == "" || strings.TrimSpace(chatID) == "" {
 		return ""
 	}
-	identity := telegramOutboundDedupIdentity(inboundMessageID, callbackID)
+	identity := telegramOutboundDedupIdentity(inboundMessageID, callbackID, callbackData)
 	if identity == "" {
 		return ""
 	}
@@ -1865,20 +1879,44 @@ func telegramOutboundDedupKey(account ChannelAccount, chatID string, inboundMess
 	)
 }
 
-func telegramOutboundDedupIdentity(messageID int64, callbackID string) string {
+func telegramOutboundDedupIdentity(messageID int64, callbackID, callbackData string) string {
+	if messageID != 0 {
+		if trimmed := strings.TrimSpace(callbackData); trimmed != "" {
+			hash := sha256.Sum256([]byte(trimmed))
+			return "cbqmsg:" + strconv.FormatInt(messageID, 10) + ":" + hex.EncodeToString(hash[:8])
+		}
+		return "msg:" + strconv.FormatInt(messageID, 10)
+	}
 	if trimmed := strings.TrimSpace(callbackID); trimmed != "" {
 		hash := sha256.Sum256([]byte(trimmed))
 		return "cbq:" + hex.EncodeToString(hash[:8])
 	}
-	if messageID == 0 {
-		return ""
-	}
-	return "msg:" + strconv.FormatInt(messageID, 10)
+	return ""
 }
 
 func telegramClientPromptKey(accountID, chatID, text string) string {
 	hash := sha256.Sum256([]byte(strings.TrimSpace(text)))
 	return fmt.Sprintf("tg:prompt:%s:%s:%s", strings.TrimSpace(accountID), strings.TrimSpace(chatID), hex.EncodeToString(hash[:8]))
+}
+
+func telegramOperatorReplyKey(accountID, chatID string, payload TelegramOutboundPayload) string {
+	if strings.TrimSpace(accountID) == "" || strings.TrimSpace(chatID) == "" {
+		return ""
+	}
+	signaturePayload, err := json.Marshal(struct {
+		Text      string                 `json:"text,omitempty"`
+		Buttons   []TelegramInlineButton `json:"buttons,omitempty"`
+		ParseMode string                 `json:"parseMode,omitempty"`
+	}{
+		Text:      strings.TrimSpace(payload.Text),
+		Buttons:   payload.Buttons,
+		ParseMode: strings.TrimSpace(payload.ParseMode),
+	})
+	if err != nil {
+		return ""
+	}
+	hash := sha256.Sum256(signaturePayload)
+	return fmt.Sprintf("tg:opreply:%s:%s:%s", strings.TrimSpace(accountID), strings.TrimSpace(chatID), hex.EncodeToString(hash[:8]))
 }
 
 func telegramClientPromptText(welcome bool) string {

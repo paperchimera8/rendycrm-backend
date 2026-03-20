@@ -298,7 +298,7 @@ func (s *Server) handlePublicCalendarBooking(w http.ResponseWriter, r *http.Requ
 		if outboundErr := s.enqueueTelegramOutbound(r.Context(), account, OutboundKindTelegramSendText, "", "", TelegramOutboundPayload{
 			ChatID: access.ExternalChatID,
 			Text:   messageText,
-		}, 0, ""); outboundErr != nil {
+		}, 0, "", ""); outboundErr != nil {
 			log.Printf("public calendar confirmation enqueue failed workspace=%s slot=%s chat_id=%s error=%v", access.WorkspaceID, payload.DailySlotID, access.ExternalChatID, outboundErr)
 		}
 	}

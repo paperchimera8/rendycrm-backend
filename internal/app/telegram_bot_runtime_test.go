@@ -6,16 +6,16 @@ import (
 )
 
 func TestTelegramOutboundDedupIdentityUsesMessageIDWhenCallbackMissing(t *testing.T) {
-	got := telegramOutboundDedupIdentity(178, "")
+	got := telegramOutboundDedupIdentity(178, "", "")
 	if got != "msg:178" {
 		t.Fatalf("expected message identity, got %q", got)
 	}
 }
 
-func TestTelegramOutboundDedupIdentityUsesCallbackIDHash(t *testing.T) {
-	first := telegramOutboundDedupIdentity(178, "cbq_1")
-	second := telegramOutboundDedupIdentity(178, "cbq_1")
-	third := telegramOutboundDedupIdentity(178, "cbq_2")
+func TestTelegramOutboundDedupIdentityUsesSourceMessageAndActionForCallbacks(t *testing.T) {
+	first := telegramOutboundDedupIdentity(178, "cbq_1", "rmd:toggle:booking_1:on")
+	second := telegramOutboundDedupIdentity(178, "cbq_2", "rmd:toggle:booking_1:on")
+	third := telegramOutboundDedupIdentity(178, "cbq_3", "rmd:toggle:booking_1:off")
 
 	if first == "" {
 		t.Fatal("expected callback identity")
@@ -24,7 +24,23 @@ func TestTelegramOutboundDedupIdentityUsesCallbackIDHash(t *testing.T) {
 		t.Fatalf("expected stable callback identity, got %q and %q", first, second)
 	}
 	if first == third {
-		t.Fatalf("expected different callback ids to produce different identities, got %q", first)
+		t.Fatalf("expected different callback actions to produce different identities, got %q", first)
+	}
+}
+
+func TestTelegramOutboundDedupIdentityFallsBackToCallbackIDHashWithoutMessage(t *testing.T) {
+	first := telegramOutboundDedupIdentity(0, "cbq_1", "rmd:toggle:booking_1:on")
+	second := telegramOutboundDedupIdentity(0, "cbq_1", "rmd:toggle:booking_1:on")
+	third := telegramOutboundDedupIdentity(0, "cbq_2", "rmd:toggle:booking_1:on")
+
+	if first == "" {
+		t.Fatal("expected callback identity")
+	}
+	if first != second {
+		t.Fatalf("expected stable callback fallback identity, got %q and %q", first, second)
+	}
+	if first == third {
+		t.Fatalf("expected different callback ids to produce different fallback identities, got %q", first)
 	}
 }
 
@@ -41,9 +57,9 @@ func TestTelegramOutboundDedupKeyChangesWithInboundIdentity(t *testing.T) {
 		},
 	}
 
-	first := telegramOutboundDedupKey(account, payload.ChatID, 178, "", OutboundKindTelegramSendInline, "conv_1", "", payload)
-	duplicate := telegramOutboundDedupKey(account, payload.ChatID, 178, "", OutboundKindTelegramSendInline, "conv_1", "", payload)
-	second := telegramOutboundDedupKey(account, payload.ChatID, 179, "", OutboundKindTelegramSendInline, "conv_1", "", payload)
+	first := telegramOutboundDedupKey(account, payload.ChatID, 178, "", "", OutboundKindTelegramSendInline, "conv_1", "", payload)
+	duplicate := telegramOutboundDedupKey(account, payload.ChatID, 178, "", "", OutboundKindTelegramSendInline, "conv_1", "", payload)
+	second := telegramOutboundDedupKey(account, payload.ChatID, 179, "", "", OutboundKindTelegramSendInline, "conv_1", "", payload)
 
 	if first == "" {
 		t.Fatal("expected dedup key")
@@ -53,6 +69,72 @@ func TestTelegramOutboundDedupKeyChangesWithInboundIdentity(t *testing.T) {
 	}
 	if first == second {
 		t.Fatalf("expected different inbound messages to have different dedup keys, got %q", first)
+	}
+}
+
+func TestTelegramOutboundDedupKeyIgnoresCallbackIDForSameSourceAction(t *testing.T) {
+	account := ChannelAccount{
+		ID:          "cha_global_tg",
+		ChannelKind: ChannelKindTelegramOperator,
+	}
+	payload := TelegramOutboundPayload{
+		ChatID: "1348661149",
+		Text:   "Напоминания обновлены.",
+	}
+
+	first := telegramOutboundDedupKey(account, payload.ChatID, 412, "cbq_1", "rmd:toggle:booking_1:on", OutboundKindTelegramSendText, "", "", payload)
+	duplicate := telegramOutboundDedupKey(account, payload.ChatID, 412, "cbq_2", "rmd:toggle:booking_1:on", OutboundKindTelegramSendText, "", "", payload)
+	second := telegramOutboundDedupKey(account, payload.ChatID, 412, "cbq_3", "rmd:toggle:booking_1:off", OutboundKindTelegramSendText, "", "", payload)
+
+	if first == "" {
+		t.Fatal("expected dedup key")
+	}
+	if first != duplicate {
+		t.Fatalf("expected repeated taps on the same button to reuse the dedup key, got %q and %q", first, duplicate)
+	}
+	if first == second {
+		t.Fatalf("expected different callback actions to produce different dedup keys, got %q", first)
+	}
+}
+
+func TestTelegramOperatorReplyKeyStableForSameReply(t *testing.T) {
+	payload := TelegramOutboundPayload{
+		ChatID: "1348661149",
+		Text:   "Напоминания",
+		Buttons: []TelegramInlineButton{
+			{Text: "Вкл", CallbackData: "rmd:toggle:booking_1:on"},
+		},
+	}
+
+	first := telegramOperatorReplyKey("cha_global_tg", payload.ChatID, payload)
+	second := telegramOperatorReplyKey("cha_global_tg", payload.ChatID, payload)
+
+	if first == "" {
+		t.Fatal("expected operator reply key")
+	}
+	if first != second {
+		t.Fatalf("expected stable operator reply key, got %q and %q", first, second)
+	}
+}
+
+func TestTelegramOperatorReplyKeyDiffersForDifferentReplies(t *testing.T) {
+	first := telegramOperatorReplyKey("cha_global_tg", "1348661149", TelegramOutboundPayload{
+		ChatID: "1348661149",
+		Text:   "Напоминания",
+		Buttons: []TelegramInlineButton{
+			{Text: "Вкл", CallbackData: "rmd:toggle:booking_1:on"},
+		},
+	})
+	second := telegramOperatorReplyKey("cha_global_tg", "1348661149", TelegramOutboundPayload{
+		ChatID: "1348661149",
+		Text:   "Напоминания",
+		Buttons: []TelegramInlineButton{
+			{Text: "Выкл", CallbackData: "rmd:toggle:booking_1:off"},
+		},
+	})
+
+	if first == second {
+		t.Fatalf("expected different replies to produce different operator reply keys, got %q", first)
 	}
 }
 
