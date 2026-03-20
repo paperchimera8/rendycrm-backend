@@ -1238,12 +1238,20 @@ func (s *Server) enqueueBotEngineReply(ctx context.Context, account ChannelAccou
 			return err
 		}
 	}
-	if account.ChannelKind == ChannelKindTelegramOperator && kind == OutboundKindTelegramEditInline && payload.MessageID > 0 && !payload.EditFallbackToSend {
+	if account.ChannelKind == ChannelKindTelegramOperator && kind == OutboundKindTelegramEditInline && payload.MessageID > 0 {
 		sentPayload, err := s.runtime.repository.TelegramRuntimeMessagePayload(ctx, account.ID, chatID, payload.MessageID)
 		switch {
 		case err == nil && telegramEditInlineMatchesSentPayload(sentPayload, payload):
-			log.Printf("telegram operator reply skipped no-op account_id=%s chat_id=%s message_id=%d", account.ID, chatID, payload.MessageID)
-			return nil
+			if payload.EditFallbackToSend {
+				// Text command (e.g. /start) with same content as latest message: send a new message
+				// so the operator sees a visible response.
+				kind = OutboundKindTelegramSendInline
+				payload.MessageID = 0
+				payload.EditFallbackToSend = false
+			} else {
+				log.Printf("telegram operator reply skipped no-op account_id=%s chat_id=%s message_id=%d", account.ID, chatID, payload.MessageID)
+				return nil
+			}
 		case err == nil || errors.Is(err, sql.ErrNoRows):
 		default:
 			return err
