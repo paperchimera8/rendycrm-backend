@@ -27,6 +27,17 @@ func TestPublicCalendarURL(t *testing.T) {
 			t.Fatalf("link mismatch: got %q want %q", link, want)
 		}
 	})
+
+	t.Run("api suffix is stripped before calendar path is added", func(t *testing.T) {
+		link, err := publicCalendarURL("https://rendycrm.ru/app/api", "/app", "token-3")
+		if err != nil {
+			t.Fatalf("publicCalendarURL: %v", err)
+		}
+		want := "https://rendycrm.ru/app/calendar?token=token-3"
+		if link != want {
+			t.Fatalf("link mismatch: got %q want %q", link, want)
+		}
+	})
 }
 
 func TestPublicCalendarAccessTokenRoundTrip(t *testing.T) {

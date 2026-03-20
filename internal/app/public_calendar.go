@@ -84,13 +84,18 @@ func publicCalendarURL(baseURL, appBasePath, token string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	currentPath := strings.TrimRight(parsed.Path, "/")
-	appRoot := currentPath
 	normalizedBase := strings.TrimRight(strings.TrimSpace(appBasePath), "/")
+	basePath := strings.TrimRight(parsed.Path, "/")
+	if strings.HasSuffix(basePath, "/api") {
+		basePath = strings.TrimSuffix(basePath, "/api")
+	}
+	appRoot := basePath
 	if normalizedBase != "" {
-		if appRoot == "" || appRoot == "/" {
+		switch {
+		case appRoot == "" || appRoot == "/":
 			appRoot = normalizedBase
-		} else if !strings.HasSuffix(appRoot, normalizedBase) {
+		case strings.HasSuffix(appRoot, normalizedBase):
+		default:
 			appRoot = strings.TrimRight(appRoot, "/") + normalizedBase
 		}
 	}
@@ -111,7 +116,7 @@ func (s *Server) clientCalendarURL(account ChannelAccount, chatID, workspaceID s
 	if err != nil {
 		return "", err
 	}
-	return publicCalendarURL(s.cfg.PublicBaseURL, s.cfg.AppBasePath, token)
+	return publicCalendarURL(s.cfg.AppPublicBaseURL, s.cfg.AppBasePath, token)
 }
 
 func (s *Server) handlePublicCalendar(w http.ResponseWriter, r *http.Request) {
