@@ -25,18 +25,19 @@ import (
 )
 
 const (
-	botRuntimeTokenHeader           = "X-Bot-Runtime-Token"
-	botRuntimeHTTPTimeout           = 10 * time.Second
-	botRuntimeHTTPBodyLimitBytes    = 1 << 20
-	botRuntimeClientRouteTTL        = 30 * 24 * time.Hour
-	botRuntimeClientBookingTTL      = 30 * time.Minute
-	botRuntimeOperatorSessionTTL    = 15 * time.Minute
-	telegramCallbackActionCooldown  = 10 * time.Second
-	telegramInboundDeliveryCooldown = 2 * time.Minute
-	telegramOperatorCommandCooldown = 30 * time.Second
-	telegramOperatorReplyCooldown   = 30 * time.Second
-	telegramOperatorMenuMessageTTL  = 90 * 24 * time.Hour
-	telegramPromptCooldown          = 45 * time.Second
+	botRuntimeTokenHeader            = "X-Bot-Runtime-Token"
+	botRuntimeHTTPTimeout            = 10 * time.Second
+	botRuntimeHTTPBodyLimitBytes     = 1 << 20
+	botRuntimeClientRouteTTL         = 30 * 24 * time.Hour
+	botRuntimeClientBookingTTL       = 30 * time.Minute
+	botRuntimeOperatorSessionTTL     = 15 * time.Minute
+	telegramCallbackActionCooldown   = 10 * time.Second
+	telegramInboundDeliveryCooldown  = 2 * time.Minute
+	telegramOperatorCommandCooldown  = 30 * time.Second
+	telegramOperatorMainMenuCooldown = 5 * time.Second
+	telegramOperatorReplyCooldown    = 30 * time.Second
+	telegramOperatorMenuMessageTTL   = 90 * 24 * time.Hour
+	telegramPromptCooldown           = 45 * time.Second
 )
 
 type botEngineButton struct {
@@ -2135,7 +2136,7 @@ func (s *Server) claimTelegramOperatorMainMenuReply(ctx context.Context, account
 	if key == "" {
 		return true, nil
 	}
-	return s.runtime.redis.SetNX(ctx, key, "1", telegramOperatorCommandCooldown).Result()
+	return s.runtime.redis.SetNX(ctx, key, "1", telegramOperatorMainMenuCooldown).Result()
 }
 
 func telegramOperatorReplyKey(accountID, chatID string, inboundMessageID int64, callbackData string, payload TelegramOutboundPayload) string {
