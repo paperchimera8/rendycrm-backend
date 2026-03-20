@@ -144,6 +144,37 @@ func TestTelegramOperatorReplyKeyUsesSourceMessageAndAction(t *testing.T) {
 	}
 }
 
+func TestOperatorCommandNeedsThrottle(t *testing.T) {
+	if !operatorCommandNeedsThrottle("/start") {
+		t.Fatal("expected /start to be throttled")
+	}
+	if !operatorCommandNeedsThrottle(" /reminders ") {
+		t.Fatal("expected slash command with whitespace to be throttled")
+	}
+	if !operatorCommandNeedsThrottle("отмена") {
+		t.Fatal("expected отмена to be throttled")
+	}
+	if operatorCommandNeedsThrottle("спасибо") {
+		t.Fatal("did not expect plain text to be throttled")
+	}
+}
+
+func TestTelegramOperatorCommandKeyStable(t *testing.T) {
+	first := telegramOperatorCommandKey("cha_global_tg", "1348661149", "/start")
+	second := telegramOperatorCommandKey("cha_global_tg", "1348661149", " /start ")
+	third := telegramOperatorCommandKey("cha_global_tg", "1348661149", "/reminders")
+
+	if first == "" {
+		t.Fatal("expected operator command key")
+	}
+	if first != second {
+		t.Fatalf("expected stable operator command key, got %q and %q", first, second)
+	}
+	if first == third {
+		t.Fatalf("expected different commands to produce different keys, got %q", first)
+	}
+}
+
 func TestBuildBotEngineReplyButtonsUsesCalendarURL(t *testing.T) {
 	server := &Server{
 		cfg: Config{

@@ -32,6 +32,7 @@ const (
 	botRuntimeOperatorSessionTTL    = 15 * time.Minute
 	telegramCallbackActionCooldown  = 10 * time.Second
 	telegramInboundDeliveryCooldown = 2 * time.Minute
+	telegramOperatorCommandCooldown = 30 * time.Second
 	telegramOperatorReplyCooldown   = 30 * time.Second
 	telegramPromptCooldown          = 45 * time.Second
 )
@@ -274,6 +275,7 @@ type botRuntimeOperatorSnap struct {
 	MessageID      int64  `json:"messageId,omitempty"`
 	CallbackID     string `json:"callbackId,omitempty"`
 	CallbackData   string `json:"callbackData,omitempty"`
+	Command        string `json:"command,omitempty"`
 }
 
 type botRuntimeOperatorApplyRequest struct {
@@ -634,6 +636,7 @@ func (s *Server) prepareTelegramOperatorRuntime(ctx context.Context, request bot
 			MessageID:      messageIDFromUpdate(update),
 			CallbackID:     callbackIDFromUpdate(update),
 			CallbackData:   normalizeOperatorCommand(callbackDataFromUpdate(update)),
+			Command:        telegramOperatorCommandForUpdate(update, text),
 		},
 	}, nil
 }
@@ -651,12 +654,25 @@ func (s *Server) applyTelegramOperatorRuntime(ctx context.Context, request botRu
 	if !freshDelivery {
 		return true, nil
 	}
+	commandKey := ""
+	if request.Snapshot.CallbackID == "" && operatorCommandNeedsThrottle(request.Snapshot.Command) {
+		commandKey = telegramOperatorCommandKey(account.ID, request.Snapshot.ChatID, request.Snapshot.Command)
+		freshCommand, err := s.claimTelegramOperatorCommand(ctx, account.ID, request.Snapshot.ChatID, request.Snapshot.Command)
+		if err != nil {
+			s.releaseTelegramDedupKey(ctx, deliveryKey)
+			return false, err
+		}
+		if !freshCommand {
+			return true, nil
+		}
+	}
 	actionKey := ""
 	if request.Snapshot.CallbackData != "" {
 		actionKey = telegramCallbackActionKey(account.ID, ChannelKindTelegramOperator, request.Snapshot.ChatID, request.Snapshot.MessageID, request.Snapshot.CallbackData)
 		freshAction, err := s.claimTelegramCallbackAction(ctx, account.ID, ChannelKindTelegramOperator, request.Snapshot.ChatID, request.Snapshot.MessageID, request.Snapshot.CallbackData)
 		if err != nil {
 			s.releaseTelegramDedupKey(ctx, deliveryKey)
+			s.releaseTelegramDedupKey(ctx, commandKey)
 			return false, err
 		}
 		if !freshAction {
@@ -665,12 +681,14 @@ func (s *Server) applyTelegramOperatorRuntime(ctx context.Context, request botRu
 	}
 	if err := s.applyBotEngineOperatorTransition(ctx, account, request.Snapshot, request.Transition); err != nil {
 		s.releaseTelegramDedupKey(ctx, deliveryKey)
+		s.releaseTelegramDedupKey(ctx, commandKey)
 		s.releaseTelegramDedupKey(ctx, actionKey)
 		return false, err
 	}
 	isNew, err := s.runtime.repository.MarkTelegramUpdateProcessed(ctx, account.WorkspaceID, account.ID, ChannelKindTelegramOperator, request.Snapshot.UpdateID, request.Snapshot.ChatID, request.Snapshot.MessageID, request.Snapshot.CallbackID)
 	if err != nil {
 		s.releaseTelegramDedupKey(ctx, deliveryKey)
+		s.releaseTelegramDedupKey(ctx, commandKey)
 		s.releaseTelegramDedupKey(ctx, actionKey)
 		return false, err
 	}
@@ -1839,6 +1857,16 @@ func (s *Server) claimTelegramInboundDelivery(ctx context.Context, accountID str
 	return s.runtime.redis.SetNX(ctx, telegramInboundDeliveryKey(accountID, botKind, chatID, messageID, callbackID), "1", telegramInboundDeliveryCooldown).Result()
 }
 
+func (s *Server) claimTelegramOperatorCommand(ctx context.Context, accountID, chatID, command string) (bool, error) {
+	if !operatorCommandNeedsThrottle(command) {
+		return true, nil
+	}
+	if s == nil || s.runtime == nil || s.runtime.redis == nil {
+		return true, nil
+	}
+	return s.runtime.redis.SetNX(ctx, telegramOperatorCommandKey(accountID, chatID, command), "1", telegramOperatorCommandCooldown).Result()
+}
+
 func (s *Server) releaseTelegramDedupKey(ctx context.Context, key string) {
 	if strings.TrimSpace(key) == "" || s == nil || s.runtime == nil || s.runtime.redis == nil {
 		return
@@ -1918,6 +1946,14 @@ func telegramClientPromptKey(accountID, chatID, text string) string {
 	return fmt.Sprintf("tg:prompt:%s:%s:%s", strings.TrimSpace(accountID), strings.TrimSpace(chatID), hex.EncodeToString(hash[:8]))
 }
 
+func telegramOperatorCommandKey(accountID, chatID, command string) string {
+	if strings.TrimSpace(accountID) == "" || strings.TrimSpace(chatID) == "" || strings.TrimSpace(command) == "" {
+		return ""
+	}
+	hash := sha256.Sum256([]byte(strings.TrimSpace(command)))
+	return fmt.Sprintf("tg:opcmd:%s:%s:%s", strings.TrimSpace(accountID), strings.TrimSpace(chatID), hex.EncodeToString(hash[:8]))
+}
+
 func telegramOperatorReplyKey(accountID, chatID string, inboundMessageID int64, callbackData string, payload TelegramOutboundPayload) string {
 	if strings.TrimSpace(accountID) == "" || strings.TrimSpace(chatID) == "" {
 		return ""
@@ -1948,6 +1984,14 @@ func telegramOperatorReplyKey(accountID, chatID string, inboundMessageID int64, 
 	}
 	hash := sha256.Sum256(signaturePayload)
 	return fmt.Sprintf("tg:opreply:%s:%s:%s:%s", strings.TrimSpace(accountID), strings.TrimSpace(chatID), identity, hex.EncodeToString(hash[:8]))
+}
+
+func operatorCommandNeedsThrottle(command string) bool {
+	command = strings.TrimSpace(strings.ToLower(command))
+	if command == "" {
+		return false
+	}
+	return command == "отмена" || strings.HasPrefix(command, "/")
 }
 
 func telegramClientPromptText(welcome bool) string {
@@ -2046,6 +2090,13 @@ func normalizeOperatorCommand(text string) string {
 		}
 	}
 	return text
+}
+
+func telegramOperatorCommandForUpdate(update tgapi.Update, text string) string {
+	if update.CallbackQuery != nil {
+		return ""
+	}
+	return normalizeOperatorCommand(text)
 }
 
 func messageIDFromUpdate(update tgapi.Update) int64 {
