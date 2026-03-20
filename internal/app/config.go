@@ -15,6 +15,7 @@ type Config struct {
 	Port                string
 	StaticDir           string
 	AppBasePath         string
+	AppPublicBaseURL    string
 	PostgresDSN         string
 	RedisAddr           string
 	RedisUsername       string
@@ -41,6 +42,7 @@ func LoadConfig() Config {
 		Port:                envOrDefault("PORT", "8080"),
 		StaticDir:           envOrDefault("STATIC_DIR", ""),
 		AppBasePath:         normalizeBasePath(os.Getenv("APP_BASE_PATH")),
+		AppPublicBaseURL:    envOrDefault("APP_PUBLIC_BASE_URL", "https://rendycrm.ru"),
 		PostgresDSN:         postgresDSNFromEnv(),
 		RedisAddr:           redisAddrFromEnv(),
 		RedisUsername:       firstNonEmpty("REDIS_USERNAME", "REDIS_USER"),

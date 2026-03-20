@@ -1217,9 +1217,14 @@ func (s *Server) isAllowedOrigin(origin string) bool {
 			return true
 		}
 	}
-	if s.cfg.PublicBaseURL != "" {
-		if publicURL, err := url.Parse(s.cfg.PublicBaseURL); err == nil && publicURL.Scheme != "" && publicURL.Host != "" {
-			return origin == publicURL.Scheme+"://"+publicURL.Host
+	for _, rawURL := range []string{s.cfg.PublicBaseURL, s.cfg.AppPublicBaseURL} {
+		if rawURL == "" {
+			continue
+		}
+		if publicURL, err := url.Parse(rawURL); err == nil && publicURL.Scheme != "" && publicURL.Host != "" {
+			if origin == publicURL.Scheme+"://"+publicURL.Host {
+				return true
+			}
 		}
 	}
 	return false
