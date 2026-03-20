@@ -1238,7 +1238,7 @@ func (s *Server) enqueueBotEngineReply(ctx context.Context, account ChannelAccou
 			return err
 		}
 	}
-	if account.ChannelKind == ChannelKindTelegramOperator && kind == OutboundKindTelegramEditInline && payload.MessageID > 0 {
+	if account.ChannelKind == ChannelKindTelegramOperator && kind == OutboundKindTelegramEditInline && payload.MessageID > 0 && !payload.EditFallbackToSend {
 		sentPayload, err := s.runtime.repository.TelegramRuntimeMessagePayload(ctx, account.ID, chatID, payload.MessageID)
 		switch {
 		case err == nil && telegramEditInlineMatchesSentPayload(sentPayload, payload):
