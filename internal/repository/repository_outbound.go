@@ -490,6 +490,35 @@ func (r *Repository) EnqueueOutboundMessage(ctx context.Context, outbound Outbou
 	return item, inserted, nil
 }
 
+func (r *Repository) LatestTelegramRuntimeMessageID(ctx context.Context, channelAccountID, chatID string) (int64, error) {
+	if strings.TrimSpace(channelAccountID) == "" || strings.TrimSpace(chatID) == "" {
+		return 0, sql.ErrNoRows
+	}
+
+	var providerMessageID string
+	err := r.db.QueryRowContext(ctx, `
+		SELECT provider_message_id
+		FROM outbound_messages
+		WHERE channel_account_id = $1
+		  AND conversation_id = ''
+		  AND status = 'sent'
+		  AND kind IN ('telegram.send_inline', 'telegram.edit_inline')
+		  AND payload_json->>'chatId' = $2
+		  AND COALESCE(provider_message_id, '') <> ''
+		ORDER BY created_at DESC
+		LIMIT 1
+	`, channelAccountID, chatID).Scan(&providerMessageID)
+	if err != nil {
+		return 0, err
+	}
+
+	messageID, err := strconv.ParseInt(strings.TrimSpace(providerMessageID), 10, 64)
+	if err != nil || messageID <= 0 {
+		return 0, sql.ErrNoRows
+	}
+	return messageID, nil
+}
+
 func (r *Repository) ClaimNextOutboundMessage(ctx context.Context) (OutboundMessage, error) {
 	var item OutboundMessage
 	err := r.db.QueryRowContext(ctx, `

@@ -466,6 +466,7 @@ type TelegramOutboundPayload struct {
 	CallbackID   string                 `json:"callbackId,omitempty"`
 	CallbackText string                 `json:"callbackText,omitempty"`
 	ShowAlert    bool                   `json:"showAlert,omitempty"`
+	EditFallbackToSend bool             `json:"editFallbackToSend,omitempty"`
 }
 
 type ClientBotRoute struct {

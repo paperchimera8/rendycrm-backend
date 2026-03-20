@@ -40,3 +40,32 @@ func TestIsTelegramEditNoopErrorRejectsOtherErrors(t *testing.T) {
 		}
 	}
 }
+
+func TestShouldFallbackTelegramEditToSend(t *testing.T) {
+	err := &tgapi.APIError{
+		Method:      "editMessageText",
+		StatusCode:  400,
+		Description: "Bad Request: message to edit not found",
+	}
+
+	if !shouldFallbackTelegramEditToSend(err) {
+		t.Fatal("expected 400 edit error to fallback to send")
+	}
+}
+
+func TestShouldFallbackTelegramEditToSendRejectsNon400(t *testing.T) {
+	tests := []error{
+		errors.New("boom"),
+		&tgapi.APIError{
+			Method:      "editMessageText",
+			StatusCode:  429,
+			Description: "Too Many Requests",
+		},
+	}
+
+	for _, err := range tests {
+		if shouldFallbackTelegramEditToSend(err) {
+			t.Fatalf("did not expect error %v to fallback to send", err)
+		}
+	}
+}

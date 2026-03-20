@@ -136,6 +136,14 @@ func (s *Server) dispatchOutboundMessage(ctx context.Context, item OutboundMessa
 				providerMessageID = strconv.FormatInt(payload.MessageID, 10)
 				break
 			}
+			if payload.EditFallbackToSend && shouldFallbackTelegramEditToSend(err) {
+				sendRes, sendErr := s.runtime.telegram.SendInline(ctx, token, payload.ChatID, payload.Text, rows)
+				if sendErr != nil {
+					return s.retryOutboundMessage(ctx, item, sendErr)
+				}
+				providerMessageID = fmt.Sprintf("%d", sendRes.MessageID)
+				break
+			}
 			return s.retryOutboundMessage(ctx, item, err)
 		}
 		providerMessageID = fmt.Sprintf("%d", res.MessageID)
@@ -164,6 +172,14 @@ func isTelegramEditNoopError(err error) bool {
 		return false
 	}
 	return strings.Contains(strings.ToLower(strings.TrimSpace(apiErr.Description)), "message is not modified")
+}
+
+func shouldFallbackTelegramEditToSend(err error) bool {
+	var apiErr *tgapi.APIError
+	if !errors.As(err, &apiErr) {
+		return false
+	}
+	return apiErr.StatusCode == 400
 }
 
 func (s *Server) retryOutboundMessage(ctx context.Context, item OutboundMessage, err error) error {

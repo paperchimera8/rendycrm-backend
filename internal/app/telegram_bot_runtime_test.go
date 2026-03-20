@@ -191,6 +191,21 @@ func TestBotEngineReplyOutboundKindKeepsClientCallbacksAsInlineMessages(t *testi
 	}
 }
 
+func TestBotEngineReplyOutboundKindKeepsOperatorTextRepliesAsInlineMessagesBeforePromotion(t *testing.T) {
+	account := ChannelAccount{
+		ID:          "cha_operator_tg",
+		ChannelKind: ChannelKindTelegramOperator,
+	}
+
+	got := botEngineReplyOutboundKind(account, 201, "", []TelegramInlineButton{
+		{Text: "Настройки", CallbackData: "/settings"},
+	})
+
+	if got != OutboundKindTelegramSendInline {
+		t.Fatalf("expected operator text reply to default to send inline, got %s", got)
+	}
+}
+
 func TestOperatorCommandNeedsThrottle(t *testing.T) {
 	if !operatorCommandNeedsThrottle("/start") {
 		t.Fatal("expected /start to be throttled")

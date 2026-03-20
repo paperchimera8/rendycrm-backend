@@ -1226,6 +1226,18 @@ func (s *Server) enqueueBotEngineReply(ctx context.Context, account ChannelAccou
 	if kind == OutboundKindTelegramEditInline {
 		payload.MessageID = inboundMessageID
 	}
+	if account.ChannelKind == ChannelKindTelegramOperator && strings.TrimSpace(callbackID) == "" && len(payload.Buttons) > 0 {
+		messageID, err := s.runtime.repository.LatestTelegramRuntimeMessageID(ctx, account.ID, chatID)
+		switch {
+		case err == nil && messageID > 0:
+			kind = OutboundKindTelegramEditInline
+			payload.MessageID = messageID
+			payload.EditFallbackToSend = true
+		case err == nil || errors.Is(err, sql.ErrNoRows):
+		default:
+			return err
+		}
+	}
 	if account.ChannelKind == ChannelKindTelegramOperator && s != nil && s.runtime != nil && s.runtime.redis != nil {
 		replyKey := telegramOperatorReplyKey(account.ID, chatID, inboundMessageID, callbackData, payload)
 		if replyKey != "" {
