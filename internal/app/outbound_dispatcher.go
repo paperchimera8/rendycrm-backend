@@ -145,6 +145,11 @@ func (s *Server) dispatchOutboundMessage(ctx context.Context, item OutboundMessa
 				}
 				err = confirmErr
 			}
+			if shouldAssumeTelegramEditApplied(item, payload, err) {
+				log.Printf("telegram edit assumed applied id=%s message_id=%d chat_id=%s error=%v", item.ID, payload.MessageID, payload.ChatID, err)
+				providerMessageID = strconv.FormatInt(payload.MessageID, 10)
+				break
+			}
 			if payload.EditFallbackToSend && shouldFallbackTelegramEditToSend(err) {
 				sendRes, sendErr := s.runtime.telegram.SendInline(ctx, token, payload.ChatID, payload.Text, rows)
 				if sendErr != nil {
@@ -205,6 +210,20 @@ func (s *Server) confirmTelegramEdit(ctx context.Context, token string, request 
 		return strconv.FormatInt(request.MessageID, 10), nil
 	}
 	return "", err
+}
+
+func shouldAssumeTelegramEditApplied(item OutboundMessage, payload TelegramOutboundPayload, err error) bool {
+	if item.ChannelKind != ChannelKindTelegramOperator {
+		return false
+	}
+	if payload.MessageID <= 0 || strings.TrimSpace(payload.ChatID) == "" || len(payload.Buttons) == 0 {
+		return false
+	}
+	var apiErr *tgapi.APIError
+	if !errors.As(err, &apiErr) {
+		return false
+	}
+	return apiErr.StatusCode == 400
 }
 
 func shouldFallbackTelegramEditToSend(err error) bool {

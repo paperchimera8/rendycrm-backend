@@ -98,3 +98,58 @@ func TestShouldConfirmTelegramEditRejectsNon400(t *testing.T) {
 		}
 	}
 }
+
+func TestShouldAssumeTelegramEditAppliedForOperatorMenu(t *testing.T) {
+	item := OutboundMessage{ChannelKind: ChannelKindTelegramOperator}
+	payload := TelegramOutboundPayload{
+		ChatID:    "1348661149",
+		MessageID: 193,
+		Buttons: []TelegramInlineButton{
+			{Text: "FAQ", CallbackData: "/faq"},
+		},
+	}
+	err := &tgapi.APIError{
+		Method:      "editMessageText",
+		StatusCode:  400,
+		Description: "Bad Request",
+	}
+
+	if !shouldAssumeTelegramEditApplied(item, payload, err) {
+		t.Fatal("expected operator menu 400 to be treated as applied")
+	}
+}
+
+func TestShouldAssumeTelegramEditAppliedRejectsClientOrButtonlessEdits(t *testing.T) {
+	tests := []struct {
+		name    string
+		item    OutboundMessage
+		payload TelegramOutboundPayload
+		err     error
+	}{
+		{
+			name: "client",
+			item: OutboundMessage{ChannelKind: ChannelKindTelegramClient},
+			payload: TelegramOutboundPayload{
+				ChatID:    "1348661149",
+				MessageID: 193,
+				Buttons:   []TelegramInlineButton{{Text: "FAQ", CallbackData: "/faq"}},
+			},
+			err: &tgapi.APIError{Method: "editMessageText", StatusCode: 400, Description: "Bad Request"},
+		},
+		{
+			name: "no buttons",
+			item: OutboundMessage{ChannelKind: ChannelKindTelegramOperator},
+			payload: TelegramOutboundPayload{
+				ChatID:    "1348661149",
+				MessageID: 193,
+			},
+			err: &tgapi.APIError{Method: "editMessageText", StatusCode: 400, Description: "Bad Request"},
+		},
+	}
+
+	for _, test := range tests {
+		if shouldAssumeTelegramEditApplied(test.item, test.payload, test.err) {
+			t.Fatalf("did not expect %s case to be treated as applied", test.name)
+		}
+	}
+}
