@@ -1,6 +1,7 @@
 package repository
 
 import (
+	"fmt"
 	"slices"
 	"strings"
 	"time"
@@ -125,11 +126,20 @@ func formatSlotsForBot(slots []DailySlot) (string, []string) {
 		if i >= 3 {
 			break
 		}
-		label := slot.StartsAt.In(time.Local).Format("02.01 15:04")
+		label := formatBotSlotLabel(slot)
 		lines = append(lines, label)
 		buttons = append(buttons, label)
 	}
 	return strings.Join(lines, "\n"), buttons
+}
+
+func formatBotSlotLabel(slot DailySlot) string {
+	start := slot.StartsAt.In(time.Local)
+	end := slot.EndsAt.In(time.Local)
+	if start.Format("02.01") == end.Format("02.01") {
+		return fmt.Sprintf("%s-%s", start.Format("02.01 15:04"), end.Format("15:04"))
+	}
+	return fmt.Sprintf("%s-%s", start.Format("02.01 15:04"), end.Format("02.01 15:04"))
 }
 
 func countRecentBotMessages(messages []Message, window time.Duration) int {

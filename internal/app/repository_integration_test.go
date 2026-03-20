@@ -126,6 +126,43 @@ func TestRescheduleConfirmedBookingFreesOldWindowAndBooksNewOne(t *testing.T) {
 	}
 }
 
+func TestAvailableDaySlotsPreferMaterializedDailySlotsOverComputedWindows(t *testing.T) {
+	repo, db, workspaceID, _, cleanup := newIntegrationRepository(t, "Europe/Moscow")
+	defer cleanup()
+
+	setWorkRule(t, db, workspaceID, 1, 10*60, 16*60)
+	loc := mustLocation(t, "Europe/Moscow")
+	from := time.Date(2026, 3, 9, 0, 0, 0, 0, loc).UTC()
+	to := from.Add(24 * time.Hour)
+	startsAt := time.Date(2026, 3, 9, 12, 30, 0, 0, loc).UTC()
+	endsAt := startsAt.Add(90 * time.Minute)
+
+	slot, err := repo.CreateDaySlot(context.Background(), workspaceID, DailySlot{
+		StartsAt:        startsAt,
+		EndsAt:          endsAt,
+		DurationMinutes: 90,
+		Status:          DailySlotFree,
+		Note:            "Real synced slot",
+	})
+	if err != nil {
+		t.Fatalf("create day slot: %v", err)
+	}
+
+	available, err := repo.AvailableDaySlots(context.Background(), workspaceID, from, to)
+	if err != nil {
+		t.Fatalf("available slots: %v", err)
+	}
+	if len(available) != 1 {
+		t.Fatalf("expected only materialized slot to be returned, got %d slots", len(available))
+	}
+	if available[0].ID != slot.ID {
+		t.Fatalf("expected slot %s, got %s", slot.ID, available[0].ID)
+	}
+	if !available[0].StartsAt.Equal(startsAt) || !available[0].EndsAt.Equal(endsAt) {
+		t.Fatalf("unexpected slot interval: got %s-%s want %s-%s", available[0].StartsAt, available[0].EndsAt, startsAt, endsAt)
+	}
+}
+
 func TestCancelAndCompleteKeepSlotStateConsistent(t *testing.T) {
 	repo, db, workspaceID, customerID, cleanup := newIntegrationRepository(t, "Europe/Moscow")
 	defer cleanup()
