@@ -15,19 +15,30 @@ import (
 var mondayFirstLabels = []string{"Понедельник", "Вторник", "Среда", "Четверг", "Пятница", "Суббота", "Воскресенье"}
 
 func (r *Repository) EnsureSlotSystem(ctx context.Context, workspaceID string) error {
-	if _, err := r.ensureSlotSettings(ctx, workspaceID); err != nil {
+	settings, err := r.ensureSlotSettings(ctx, workspaceID)
+	if err != nil {
 		return err
 	}
-	if _, err := r.ensureDefaultSlotColors(ctx, workspaceID); err != nil {
+	colors, err := r.ensureDefaultSlotColors(ctx, workspaceID)
+	if err != nil {
+		return err
+	}
+	if err := r.migrateLegacyAvailability(ctx, workspaceID, settings, colors); err != nil {
 		return err
 	}
 	if err := r.cleanupExpiredSlotHolds(ctx, workspaceID); err != nil {
 		return err
 	}
+	if err := r.syncGeneratedDailySlots(ctx, workspaceID); err != nil {
+		return err
+	}
+	if err := r.backfillDailySlotsForBookings(ctx, workspaceID); err != nil {
+		return err
+	}
 	if _, err := r.repairScheduleConsistency(ctx, workspaceID); err != nil {
 		return err
 	}
-	return r.removeTemplateSlots(ctx, workspaceID)
+	return nil
 }
 
 func (r *Repository) SlotEditor(ctx context.Context, workspaceID string, day time.Time) (SlotEditorResponse, error) {

@@ -163,6 +163,49 @@ func TestAvailableDaySlotsPreferMaterializedDailySlotsOverComputedWindows(t *tes
 	}
 }
 
+func TestEnsureSlotSystemMaterializesLegacyAvailabilityIntoDailySlots(t *testing.T) {
+	repo, db, workspaceID, _, cleanup := newIntegrationRepository(t, "Europe/Moscow")
+	defer cleanup()
+
+	loc := mustLocation(t, "Europe/Moscow")
+	targetDay := time.Now().In(loc).AddDate(0, 0, 1)
+	targetDay = time.Date(targetDay.Year(), targetDay.Month(), targetDay.Day(), 12, 0, 0, 0, loc)
+	setWorkRule(t, db, workspaceID, int(targetDay.Weekday()), 12*60, 14*60)
+
+	if err := repo.EnsureSlotSystem(context.Background(), workspaceID); err != nil {
+		t.Fatalf("ensure slot system: %v", err)
+	}
+
+	daySlots, err := repo.DaySlots(context.Background(), workspaceID, targetDay.UTC())
+	if err != nil {
+		t.Fatalf("day slots: %v", err)
+	}
+	if len(daySlots) == 0 {
+		t.Fatal("expected generated daily slots after ensure slot system")
+	}
+
+	expectedStart := targetDay.UTC()
+	expectedEnd := targetDay.Add(time.Hour).UTC()
+	foundMaterialized := false
+	for _, slot := range daySlots {
+		if slot.StartsAt.Equal(expectedStart) && slot.EndsAt.Equal(expectedEnd) && !slot.IsManual && slot.SourceTemplateID != "" {
+			foundMaterialized = true
+			break
+		}
+	}
+	if !foundMaterialized {
+		t.Fatalf("expected materialized template slot %s-%s, got %+v", expectedStart, expectedEnd, daySlots)
+	}
+
+	available, err := repo.AvailableDaySlots(context.Background(), workspaceID, expectedStart.Add(-time.Hour), expectedEnd.Add(2*time.Hour))
+	if err != nil {
+		t.Fatalf("available slots: %v", err)
+	}
+	if !containsWindow(available, expectedStart, expectedEnd) {
+		t.Fatalf("expected materialized slot %s-%s in available slots", expectedStart, expectedEnd)
+	}
+}
+
 func TestCancelAndCompleteKeepSlotStateConsistent(t *testing.T) {
 	repo, db, workspaceID, customerID, cleanup := newIntegrationRepository(t, "Europe/Moscow")
 	defer cleanup()
