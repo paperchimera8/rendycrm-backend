@@ -192,6 +192,11 @@ func shouldConfirmTelegramEdit(err error) bool {
 }
 
 func (s *Server) confirmTelegramEdit(ctx context.Context, token string, request tgapi.EditMessageTextRequest) (string, error) {
+	select {
+	case <-ctx.Done():
+		return "", ctx.Err()
+	case <-time.After(350 * time.Millisecond):
+	}
 	res, err := s.runtime.telegram.EditInline(ctx, token, request)
 	if err == nil {
 		return fmt.Sprintf("%d", res.MessageID), nil
