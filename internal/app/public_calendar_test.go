@@ -65,3 +65,33 @@ func TestPublicCalendarAccessTokenRoundTrip(t *testing.T) {
 		t.Fatalf("expiresAt mismatch: got %s want %s", payload.ExpiresAt, expiresAt)
 	}
 }
+
+func TestParsePublicCalendarRange(t *testing.T) {
+	now := time.Date(2026, 3, 20, 15, 45, 0, 0, time.UTC)
+
+	t.Run("date_to is treated as inclusive last day", func(t *testing.T) {
+		from, to, err := parsePublicCalendarRange(now, "2026-03-20", "2026-03-22")
+		if err != nil {
+			t.Fatalf("parsePublicCalendarRange: %v", err)
+		}
+		if want := time.Date(2026, 3, 20, 0, 0, 0, 0, time.UTC); !from.Equal(want) {
+			t.Fatalf("unexpected from: got %s want %s", from, want)
+		}
+		if want := time.Date(2026, 3, 23, 0, 0, 0, 0, time.UTC); !to.Equal(want) {
+			t.Fatalf("unexpected to: got %s want %s", to, want)
+		}
+	})
+
+	t.Run("date_from without date_to uses 14-day window from requested day", func(t *testing.T) {
+		from, to, err := parsePublicCalendarRange(now, "2026-03-25", "")
+		if err != nil {
+			t.Fatalf("parsePublicCalendarRange: %v", err)
+		}
+		if want := time.Date(2026, 3, 25, 0, 0, 0, 0, time.UTC); !from.Equal(want) {
+			t.Fatalf("unexpected from: got %s want %s", from, want)
+		}
+		if want := time.Date(2026, 4, 8, 0, 0, 0, 0, time.UTC); !to.Equal(want) {
+			t.Fatalf("unexpected to: got %s want %s", to, want)
+		}
+	})
+}

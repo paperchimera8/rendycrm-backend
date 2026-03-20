@@ -1084,7 +1084,10 @@ func (r *Repository) migrateLegacyAvailability(ctx context.Context, workspaceID 
 	if len(legacy) == 0 {
 		return nil
 	}
-	step := 120
+	step := settings.DefaultDurationMinutes
+	if step <= 0 {
+		step = 60
+	}
 	for _, rule := range legacy {
 		if !rule.enabled {
 			continue

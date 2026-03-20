@@ -206,6 +206,49 @@ func TestEnsureSlotSystemMaterializesLegacyAvailabilityIntoDailySlots(t *testing
 	}
 }
 
+func TestEnsureSlotSystemMaterializesLegacyAvailabilityWithHourlyCadence(t *testing.T) {
+	repo, db, workspaceID, _, cleanup := newIntegrationRepository(t, "Europe/Moscow")
+	defer cleanup()
+
+	if _, err := repo.UpdateSlotSettings(context.Background(), workspaceID, SlotSettings{
+		WorkspaceID:             workspaceID,
+		Timezone:                "Europe/Moscow",
+		DefaultDurationMinutes:  60,
+		GenerationHorizonDays:   30,
+	}); err != nil {
+		t.Fatalf("update slot settings: %v", err)
+	}
+
+	loc := mustLocation(t, "Europe/Moscow")
+	targetDay := time.Now().In(loc).AddDate(0, 0, 1)
+	targetDay = time.Date(targetDay.Year(), targetDay.Month(), targetDay.Day(), 0, 0, 0, 0, loc)
+	setWorkRule(t, db, workspaceID, int(targetDay.Weekday()), 10*60, 13*60)
+
+	if err := repo.EnsureSlotSystem(context.Background(), workspaceID); err != nil {
+		t.Fatalf("ensure slot system: %v", err)
+	}
+
+	daySlots, err := repo.DaySlots(context.Background(), workspaceID, targetDay.UTC())
+	if err != nil {
+		t.Fatalf("day slots: %v", err)
+	}
+	if len(daySlots) != 3 {
+		t.Fatalf("expected 3 materialized slots, got %d: %+v", len(daySlots), daySlots)
+	}
+
+	wantStarts := []time.Time{
+		time.Date(targetDay.Year(), targetDay.Month(), targetDay.Day(), 10, 0, 0, 0, loc).UTC(),
+		time.Date(targetDay.Year(), targetDay.Month(), targetDay.Day(), 11, 0, 0, 0, loc).UTC(),
+		time.Date(targetDay.Year(), targetDay.Month(), targetDay.Day(), 12, 0, 0, 0, loc).UTC(),
+	}
+	for _, wantStart := range wantStarts {
+		wantEnd := wantStart.Add(time.Hour)
+		if !containsWindow(daySlots, wantStart, wantEnd) {
+			t.Fatalf("expected slot %s-%s in materialized day slots, got %+v", wantStart, wantEnd, daySlots)
+		}
+	}
+}
+
 func TestCancelAndCompleteKeepSlotStateConsistent(t *testing.T) {
 	repo, db, workspaceID, customerID, cleanup := newIntegrationRepository(t, "Europe/Moscow")
 	defer cleanup()
