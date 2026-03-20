@@ -544,6 +544,82 @@ describe("operator engine", () => {
     expect(result.state.interaction).toEqual({ kind: "idle" });
   });
 
+  it("clears stale reply interaction when operator enters slash command", async () => {
+    const result = await handleOperatorEvent(
+      {
+        ...createOperatorSession(),
+        binding: {
+          kind: "bound",
+          workspaceId: "ws_smoke",
+          userId: "usr_1",
+          chatId: "tg-chat-1",
+        },
+        interaction: {
+          kind: "awaiting_reply",
+          conversationId: "dlg_1",
+        },
+      },
+      { type: "message", eventId: "evt-12c", text: "/dashboard" },
+      {
+        ...operatorContext,
+        dedupStore: new InMemoryDedupStore(),
+      },
+    );
+
+    expect(result.state.interaction).toEqual({ kind: "idle" });
+    expect(result.effects).toContainEqual(
+      expect.objectContaining({
+        type: "reply",
+        text: expect.stringContaining("Записей сегодня: 4"),
+      }),
+    );
+    expect(result.effects).not.toContainEqual(
+      expect.objectContaining({
+        type: "crm",
+        intent: "operator.reply_sent",
+      }),
+    );
+  });
+
+  it("clears stale price interaction when operator enters menu command", async () => {
+    const result = await handleOperatorEvent(
+      {
+        ...createOperatorSession(),
+        binding: {
+          kind: "bound",
+          workspaceId: "ws_smoke",
+          userId: "usr_1",
+          chatId: "tg-chat-1",
+        },
+        interaction: {
+          kind: "awaiting_price",
+          conversationId: "dlg_1",
+          customerId: "cust_1",
+          slotId: "slot_1",
+          slotLabel: "19.03 14:00",
+        },
+      },
+      { type: "message", eventId: "evt-12d", text: "/settings" },
+      {
+        ...operatorContext,
+        dedupStore: new InMemoryDedupStore(),
+      },
+    );
+
+    expect(result.state.interaction).toEqual({ kind: "idle" });
+    expect(result.effects).toContainEqual(
+      expect.objectContaining({
+        type: "reply",
+        text: expect.stringContaining("⚙️ Настройки"),
+      }),
+    );
+    expect(result.effects).not.toContainEqual(
+      expect.objectContaining({
+        type: "booking.confirmed",
+      }),
+    );
+  });
+
   it("ignores duplicate event ids through external dedup store", async () => {
     const dedupStore = new InMemoryDedupStore();
     const session = {

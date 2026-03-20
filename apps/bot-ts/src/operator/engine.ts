@@ -183,7 +183,9 @@ export async function handleOperatorEvent(
     };
   }
 
-  if (event.type === "message") {
+  const bypassesInteraction = operatorCommandBypassesInteraction(normalizedCommand);
+
+  if (event.type === "message" && !bypassesInteraction) {
     const interactionTransition = handleOperatorInteraction(
       session,
       event.text,
@@ -195,11 +197,31 @@ export async function handleOperatorEvent(
   }
 
   const commandSession =
-    event.type === "callback" && session.interaction.kind !== "idle"
+    session.interaction.kind !== "idle" && (event.type === "callback" || bypassesInteraction)
       ? { ...session, interaction: { kind: "idle" as const } }
       : session;
 
   return handleBoundOperatorCommand(commandSession, normalizedCommand, context);
+}
+
+function operatorCommandBypassesInteraction(command: string): boolean {
+  const normalized = command.trim().toLowerCase();
+  if (!normalized) {
+    return false;
+  }
+  if (normalized === "отмена" || normalized.startsWith("/")) {
+    return true;
+  }
+  return (
+    normalized.startsWith("dialog:") ||
+    normalized.startsWith("reply:") ||
+    normalized.startsWith("slots:") ||
+    normalized.startsWith("pickslot:") ||
+    normalized.startsWith("take:") ||
+    normalized.startsWith("auto:") ||
+    normalized.startsWith("close:") ||
+    normalized.startsWith("reminder:toggle:")
+  );
 }
 
 function handleUnboundOperatorInput(
