@@ -1227,6 +1227,16 @@ func (s *Server) enqueueBotEngineReply(ctx context.Context, account ChannelAccou
 	if account.ChannelKind == ChannelKindTelegramOperator && len(payload.Buttons) > 0 {
 		payload.DebugTag = "operator-menu-v2"
 	}
+	if account.ChannelKind == ChannelKindTelegramOperator && strings.TrimSpace(callbackID) == "" {
+		freshMainMenu, err := s.claimTelegramOperatorMainMenuReply(ctx, account.ID, chatID, payload)
+		if err != nil {
+			return err
+		}
+		if !freshMainMenu {
+			log.Printf("telegram operator main menu skipped duplicate account_id=%s chat_id=%s text=%q", account.ID, chatID, telegramLogValue(payload.Text))
+			return nil
+		}
+	}
 	kind := botEngineReplyOutboundKind(account, inboundMessageID, callbackID, payload.Buttons)
 	if kind == OutboundKindTelegramEditInline {
 		payload.MessageID = inboundMessageID
@@ -2081,6 +2091,51 @@ func telegramOperatorCommandKey(accountID, chatID, command string) string {
 	}
 	hash := sha256.Sum256([]byte(strings.TrimSpace(command)))
 	return fmt.Sprintf("tg:opcmd:%s:%s:%s", strings.TrimSpace(accountID), strings.TrimSpace(chatID), hex.EncodeToString(hash[:8]))
+}
+
+func telegramOperatorMainMenuKey(accountID, chatID string, payload TelegramOutboundPayload) string {
+	if strings.TrimSpace(accountID) == "" || strings.TrimSpace(chatID) == "" {
+		return ""
+	}
+	signaturePayload, err := json.Marshal(struct {
+		Text    string                 `json:"text,omitempty"`
+		Buttons []TelegramInlineButton `json:"buttons,omitempty"`
+	}{
+		Text:    strings.TrimSpace(payload.Text),
+		Buttons: payload.Buttons,
+	})
+	if err != nil {
+		return ""
+	}
+	hash := sha256.Sum256(signaturePayload)
+	return fmt.Sprintf("tg:opmenu:%s:%s:%s", strings.TrimSpace(accountID), strings.TrimSpace(chatID), hex.EncodeToString(hash[:8]))
+}
+
+func isTelegramOperatorMainMenuPayload(payload TelegramOutboundPayload) bool {
+	if strings.TrimSpace(payload.Text) != "Доступны основные разделы." || len(payload.Buttons) != 6 {
+		return false
+	}
+	expected := []string{"/dashboard", "/dialogs", "/slots", "/reminders", "/settings", "/faq"}
+	for idx, action := range expected {
+		if strings.TrimSpace(payload.Buttons[idx].CallbackData) != action {
+			return false
+		}
+	}
+	return true
+}
+
+func (s *Server) claimTelegramOperatorMainMenuReply(ctx context.Context, accountID, chatID string, payload TelegramOutboundPayload) (bool, error) {
+	if !isTelegramOperatorMainMenuPayload(payload) {
+		return true, nil
+	}
+	if s == nil || s.runtime == nil || s.runtime.redis == nil {
+		return true, nil
+	}
+	key := telegramOperatorMainMenuKey(accountID, chatID, payload)
+	if key == "" {
+		return true, nil
+	}
+	return s.runtime.redis.SetNX(ctx, key, "1", telegramOperatorCommandCooldown).Result()
 }
 
 func telegramOperatorReplyKey(accountID, chatID string, inboundMessageID int64, callbackData string, payload TelegramOutboundPayload) string {

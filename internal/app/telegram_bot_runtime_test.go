@@ -292,6 +292,39 @@ func TestTelegramOperatorCommandKeyStable(t *testing.T) {
 	}
 }
 
+func TestIsTelegramOperatorMainMenuPayload(t *testing.T) {
+	payload := TelegramOutboundPayload{
+		ChatID: "1348661149",
+		Text:   "Доступны основные разделы.",
+		Buttons: []TelegramInlineButton{
+			{Text: "Дашборд", CallbackData: "/dashboard"},
+			{Text: "Диалоги", CallbackData: "/dialogs"},
+			{Text: "Слоты", CallbackData: "/slots"},
+			{Text: "Напоминания", CallbackData: "/reminders"},
+			{Text: "Настройки", CallbackData: "/settings"},
+			{Text: "FAQ", CallbackData: "/faq"},
+		},
+	}
+
+	if !isTelegramOperatorMainMenuPayload(payload) {
+		t.Fatal("expected main menu payload to be detected")
+	}
+}
+
+func TestIsTelegramOperatorMainMenuPayloadRejectsOtherReplies(t *testing.T) {
+	payload := TelegramOutboundPayload{
+		ChatID: "1348661149",
+		Text:   "⚙️ Настройки",
+		Buttons: []TelegramInlineButton{
+			{Text: "FAQ", CallbackData: "/faq"},
+		},
+	}
+
+	if isTelegramOperatorMainMenuPayload(payload) {
+		t.Fatal("did not expect non-menu payload to be treated as the main menu")
+	}
+}
+
 func TestTelegramOperatorCommandForUpdateUsesCallbackMenuCommands(t *testing.T) {
 	update := tgapi.Update{
 		CallbackQuery: &tgapi.CallbackQuery{
