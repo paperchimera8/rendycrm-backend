@@ -664,7 +664,6 @@ func (s *Server) applyTelegramOperatorRuntime(ctx context.Context, request botRu
 	if err != nil {
 		return false, err
 	}
-	deliveryKey := telegramInboundDeliveryKey(account.ID, ChannelKindTelegramOperator, request.Snapshot.ChatID, request.Snapshot.MessageID, request.Snapshot.CallbackID)
 	freshDelivery, err := s.claimTelegramInboundDelivery(ctx, account.ID, ChannelKindTelegramOperator, request.Snapshot.ChatID, request.Snapshot.MessageID, request.Snapshot.CallbackID)
 	if err != nil {
 		return false, err
@@ -672,25 +671,25 @@ func (s *Server) applyTelegramOperatorRuntime(ctx context.Context, request botRu
 	if !freshDelivery {
 		return true, nil
 	}
-	commandKey := ""
-	if request.Snapshot.CallbackID == "" && operatorCommandNeedsThrottle(request.Snapshot.Command) {
-		commandKey = telegramOperatorCommandKey(account.ID, request.Snapshot.ChatID, request.Snapshot.Command)
+	isNew, err := s.runtime.repository.MarkTelegramUpdateProcessed(ctx, account.WorkspaceID, account.ID, ChannelKindTelegramOperator, request.Snapshot.UpdateID, request.Snapshot.ChatID, request.Snapshot.MessageID, request.Snapshot.CallbackID)
+	if err != nil {
+		return false, err
+	}
+	if !isNew {
+		return true, nil
+	}
+	if operatorCommandNeedsThrottle(request.Snapshot.Command) {
 		freshCommand, err := s.claimTelegramOperatorCommand(ctx, account.ID, request.Snapshot.ChatID, request.Snapshot.Command)
 		if err != nil {
-			s.releaseTelegramDedupKey(ctx, deliveryKey)
 			return false, err
 		}
 		if !freshCommand {
 			return true, nil
 		}
 	}
-	actionKey := ""
 	if request.Snapshot.CallbackData != "" {
-		actionKey = telegramCallbackActionKey(account.ID, ChannelKindTelegramOperator, request.Snapshot.ChatID, request.Snapshot.MessageID, request.Snapshot.CallbackData)
 		freshAction, err := s.claimTelegramCallbackAction(ctx, account.ID, ChannelKindTelegramOperator, request.Snapshot.ChatID, request.Snapshot.MessageID, request.Snapshot.CallbackData)
 		if err != nil {
-			s.releaseTelegramDedupKey(ctx, deliveryKey)
-			s.releaseTelegramDedupKey(ctx, commandKey)
 			return false, err
 		}
 		if !freshAction {
@@ -698,20 +697,7 @@ func (s *Server) applyTelegramOperatorRuntime(ctx context.Context, request botRu
 		}
 	}
 	if err := s.applyBotEngineOperatorTransition(ctx, account, request.Snapshot, request.Transition); err != nil {
-		s.releaseTelegramDedupKey(ctx, deliveryKey)
-		s.releaseTelegramDedupKey(ctx, commandKey)
-		s.releaseTelegramDedupKey(ctx, actionKey)
 		return false, err
-	}
-	isNew, err := s.runtime.repository.MarkTelegramUpdateProcessed(ctx, account.WorkspaceID, account.ID, ChannelKindTelegramOperator, request.Snapshot.UpdateID, request.Snapshot.ChatID, request.Snapshot.MessageID, request.Snapshot.CallbackID)
-	if err != nil {
-		s.releaseTelegramDedupKey(ctx, deliveryKey)
-		s.releaseTelegramDedupKey(ctx, commandKey)
-		s.releaseTelegramDedupKey(ctx, actionKey)
-		return false, err
-	}
-	if !isNew {
-		return true, nil
 	}
 	return false, nil
 }
