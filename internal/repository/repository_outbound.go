@@ -471,7 +471,7 @@ func (r *Repository) CreateAuditLog(ctx context.Context, workspaceID, userID, ac
 
 func (r *Repository) ActiveOperatorBindings(ctx context.Context, workspaceID string) ([]OperatorBotBinding, error) {
 	rows, err := r.db.QueryContext(ctx, `
-		SELECT user_id, workspace_id, telegram_user_id, telegram_chat_id, linked_at, is_active
+		SELECT user_id, workspace_id, telegram_user_id, telegram_chat_id, linked_at, is_active, last_menu_message_id
 		FROM operator_bot_bindings
 		WHERE workspace_id = $1 AND is_active = TRUE
 		ORDER BY linked_at ASC
@@ -483,7 +483,7 @@ func (r *Repository) ActiveOperatorBindings(ctx context.Context, workspaceID str
 	var items []OperatorBotBinding
 	for rows.Next() {
 		var item OperatorBotBinding
-		if err := rows.Scan(&item.UserID, &item.WorkspaceID, &item.TelegramUserID, &item.TelegramChatID, &item.LinkedAt, &item.IsActive); err != nil {
+		if err := rows.Scan(&item.UserID, &item.WorkspaceID, &item.TelegramUserID, &item.TelegramChatID, &item.LinkedAt, &item.IsActive, &item.LastMenuMessageID); err != nil {
 			return nil, err
 		}
 		items = append(items, item)

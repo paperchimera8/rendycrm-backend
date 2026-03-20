@@ -262,11 +262,17 @@ func (s *Server) handleOperatorCommand(ctx context.Context, binding OperatorBotB
 	actor := domain.Actor{Kind: domain.ActorOperatorBot, WorkspaceID: binding.WorkspaceID, UserID: binding.UserID}
 	switch {
 	case command == "/start":
-		return []BotOutboundMessage{{
+		msg := BotOutboundMessage{
 			ChatID:  binding.TelegramChatID,
 			Text:    "Главное меню оператора. Выберите раздел.",
 			Buttons: operatorMainMenuButtons(),
-		}}, nil
+		}
+		if binding.LastMenuMessageID > 0 {
+			msg.EditMessageID = binding.LastMenuMessageID
+		} else {
+			msg.SaveMenuMsg = true
+		}
+		return []BotOutboundMessage{msg}, nil
 	case command == "/dashboard" || command == "📊 Дашборд":
 		dashboard, err := s.runtime.repository.Dashboard(ctx, binding.WorkspaceID)
 		if err != nil {

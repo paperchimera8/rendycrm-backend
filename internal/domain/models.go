@@ -345,12 +345,13 @@ type FAQItem struct {
 }
 
 type OperatorBotBinding struct {
-	UserID         string    `json:"userId"`
-	WorkspaceID    string    `json:"workspaceId"`
-	TelegramUserID string    `json:"telegramUserId"`
-	TelegramChatID string    `json:"telegramChatId"`
-	LinkedAt       time.Time `json:"linkedAt"`
-	IsActive       bool      `json:"isActive"`
+	UserID              string    `json:"userId"`
+	WorkspaceID         string    `json:"workspaceId"`
+	TelegramUserID      string    `json:"telegramUserId"`
+	TelegramChatID      string    `json:"telegramChatId"`
+	LinkedAt            time.Time `json:"linkedAt"`
+	IsActive            bool      `json:"isActive"`
+	LastMenuMessageID   int64     `json:"lastMenuMessageId"`
 }
 
 type OperatorBotLinkCode struct {
@@ -420,6 +421,8 @@ type BotOutboundMessage struct {
 	Buttons        []string `json:"buttons,omitempty"`
 	Channel        string   `json:"channel,omitempty"`
 	ConversationID string   `json:"conversationId,omitempty"`
+	EditMessageID  int64    `json:"editMessageId,omitempty"`
+	SaveMenuMsg    bool     `json:"saveMenuMsg,omitempty"`
 }
 
 type OutboundMessage struct {
@@ -456,6 +459,7 @@ type TelegramOutboundPayload struct {
 	CallbackID   string                 `json:"callbackId,omitempty"`
 	CallbackText string                 `json:"callbackText,omitempty"`
 	ShowAlert    bool                   `json:"showAlert,omitempty"`
+	SaveMenuMsg  bool                   `json:"saveMenuMsg,omitempty"`
 }
 
 type ClientBotRoute struct {

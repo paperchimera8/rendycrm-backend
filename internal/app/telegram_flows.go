@@ -882,9 +882,14 @@ func (s *Server) enqueueBotOutboundMessages(ctx context.Context, account Channel
 			ChatID: message.ChatID,
 			Text:   message.Text,
 		}
-		if len(message.Buttons) > 0 {
+		if message.EditMessageID > 0 {
+			kind = OutboundKindTelegramEditInline
+			payload.MessageID = message.EditMessageID
+			payload.Buttons = telegramButtonsFromCommands(message.Buttons)
+		} else if len(message.Buttons) > 0 {
 			kind = OutboundKindTelegramSendInline
 			payload.Buttons = telegramButtonsFromCommands(message.Buttons)
+			payload.SaveMenuMsg = message.SaveMenuMsg
 		}
 		if err := s.enqueueTelegramOutbound(ctx, account, kind, message.ConversationID, "", payload); err != nil {
 			return err

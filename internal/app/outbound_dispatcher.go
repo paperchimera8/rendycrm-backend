@@ -84,6 +84,9 @@ func (s *Server) dispatchOutboundMessage(ctx context.Context, item OutboundMessa
 			return s.retryOutboundMessage(ctx, item, err)
 		}
 		providerMessageID = fmt.Sprintf("%d", res.MessageID)
+		if payload.SaveMenuMsg {
+			_ = s.runtime.repository.UpdateOperatorBindingMenuMessageID(ctx, payload.ChatID, res.MessageID)
+		}
 	case OutboundKindTelegramEditInline:
 		rows := make([][]tgapi.InlineKeyboardButton, 0, len(payload.Buttons))
 		for _, button := range payload.Buttons {
@@ -100,6 +103,9 @@ func (s *Server) dispatchOutboundMessage(ctx context.Context, item OutboundMessa
 			ReplyMarkup: tgapi.InlineKeyboardMarkup{InlineKeyboard: rows},
 		})
 		if err != nil {
+			if tgapi.IsMessageNotModifiedError(err) {
+				return s.runtime.repository.MarkOutboundMessageSent(ctx, item.ID, fmt.Sprintf("%d", payload.MessageID))
+			}
 			return s.retryOutboundMessage(ctx, item, err)
 		}
 		providerMessageID = fmt.Sprintf("%d", res.MessageID)

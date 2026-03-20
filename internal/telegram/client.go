@@ -45,6 +45,11 @@ func (e *APIError) Error() string {
 	}
 }
 
+func IsMessageNotModifiedError(err error) bool {
+	var apiErr *APIError
+	return errors.As(err, &apiErr) && strings.Contains(apiErr.Description, "message is not modified")
+}
+
 func IsRetriableError(err error) bool {
 	if err == nil {
 		return false

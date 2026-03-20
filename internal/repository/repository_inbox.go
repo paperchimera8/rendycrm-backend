@@ -743,13 +743,20 @@ func (r *Repository) UnlinkOperatorTelegram(ctx context.Context, workspaceID, us
 func (r *Repository) ActiveOperatorBindingByTelegramChat(ctx context.Context, telegramChatID string) (OperatorBotBinding, error) {
 	var binding OperatorBotBinding
 	if err := r.db.QueryRowContext(ctx, `
-		SELECT user_id, workspace_id, telegram_user_id, telegram_chat_id, linked_at, is_active
+		SELECT user_id, workspace_id, telegram_user_id, telegram_chat_id, linked_at, is_active, last_menu_message_id
 		FROM operator_bot_bindings
 		WHERE telegram_chat_id = $1 AND is_active = TRUE
-	`, telegramChatID).Scan(&binding.UserID, &binding.WorkspaceID, &binding.TelegramUserID, &binding.TelegramChatID, &binding.LinkedAt, &binding.IsActive); err != nil {
+	`, telegramChatID).Scan(&binding.UserID, &binding.WorkspaceID, &binding.TelegramUserID, &binding.TelegramChatID, &binding.LinkedAt, &binding.IsActive, &binding.LastMenuMessageID); err != nil {
 		return OperatorBotBinding{}, err
 	}
 	return binding, nil
+}
+
+func (r *Repository) UpdateOperatorBindingMenuMessageID(ctx context.Context, telegramChatID string, menuMessageID int64) error {
+	_, err := r.db.ExecContext(ctx, `
+		UPDATE operator_bot_bindings SET last_menu_message_id = $1 WHERE telegram_chat_id = $2
+	`, menuMessageID, telegramChatID)
+	return err
 }
 
 func (r *Repository) SaveBotSession(ctx context.Context, session BotSession, payload any) (BotSession, error) {
