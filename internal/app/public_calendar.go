@@ -142,6 +142,37 @@ func (s *Server) clientCalendarURL(account ChannelAccount, chatID, workspaceID s
 	return publicCalendarURL(baseURL, s.cfg.AppBasePath, token)
 }
 
+func parsePublicCalendarRange(now time.Time, rawFrom, rawTo string) (time.Time, time.Time, error) {
+	dateFrom := now.UTC()
+	rawFrom = strings.TrimSpace(rawFrom)
+	rawTo = strings.TrimSpace(rawTo)
+
+	if rawFrom != "" {
+		parsed, err := time.Parse("2006-01-02", rawFrom)
+		if err != nil {
+			return time.Time{}, time.Time{}, errors.New("invalid date_from")
+		}
+		dateFrom = parsed
+	}
+
+	dateTo := dateFrom.AddDate(0, 0, 14)
+	if rawTo != "" {
+		parsed, err := time.Parse("2006-01-02", rawTo)
+		if err != nil {
+			return time.Time{}, time.Time{}, errors.New("invalid date_to")
+		}
+		dateTo = parsed.AddDate(0, 0, 1)
+	}
+
+	if !dateTo.After(dateFrom) {
+		return time.Time{}, time.Time{}, errors.New("date_to must be after date_from")
+	}
+	if dateTo.Sub(dateFrom) > publicCalendarMaxRangeDays*24*time.Hour {
+		return time.Time{}, time.Time{}, errors.New("date range is too large")
+	}
+	return dateFrom, dateTo, nil
+}
+
 func (s *Server) handlePublicCalendar(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		s.writeError(w, http.StatusMethodNotAllowed, "method not allowed")
@@ -152,31 +183,9 @@ func (s *Server) handlePublicCalendar(w http.ResponseWriter, r *http.Request) {
 		s.writeError(w, http.StatusUnauthorized, err.Error())
 		return
 	}
-
-	dateFrom := time.Now().UTC()
-	dateTo := dateFrom.AddDate(0, 0, 14)
-	if raw := strings.TrimSpace(r.URL.Query().Get("date_from")); raw != "" {
-		parsed, parseErr := time.Parse("2006-01-02", raw)
-		if parseErr != nil {
-			s.writeError(w, http.StatusBadRequest, "invalid date_from")
-			return
-		}
-		dateFrom = parsed
-	}
-	if raw := strings.TrimSpace(r.URL.Query().Get("date_to")); raw != "" {
-		parsed, parseErr := time.Parse("2006-01-02", raw)
-		if parseErr != nil {
-			s.writeError(w, http.StatusBadRequest, "invalid date_to")
-			return
-		}
-		dateTo = parsed
-	}
-	if dateTo.Before(dateFrom) {
-		s.writeError(w, http.StatusBadRequest, "date_to must not be before date_from")
-		return
-	}
-	if dateTo.Sub(dateFrom) > publicCalendarMaxRangeDays*24*time.Hour {
-		s.writeError(w, http.StatusBadRequest, "date range is too large")
+	dateFrom, dateTo, err := parsePublicCalendarRange(time.Now().UTC(), r.URL.Query().Get("date_from"), r.URL.Query().Get("date_to"))
+	if err != nil {
+		s.writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 
