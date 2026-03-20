@@ -424,6 +424,10 @@ func (r *Repository) DaySlots(ctx context.Context, workspaceID string, day time.
 	return r.daySlotsBetweenDateKeys(ctx, workspaceID, dayKey, dayKey, false)
 }
 
+func (r *Repository) FreeDaySlotsBetween(ctx context.Context, workspaceID string, from, to time.Time) ([]DailySlot, error) {
+	return r.daySlotsBetween(ctx, workspaceID, from, to, true)
+}
+
 func (r *Repository) daySlotsBetween(ctx context.Context, workspaceID string, from, to time.Time, freeOnly bool) ([]DailySlot, error) {
 	fromKey, err := r.slotDateForTime(ctx, workspaceID, from)
 	if err != nil {
