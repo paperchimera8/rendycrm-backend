@@ -150,7 +150,7 @@ describe("bot runtime server", () => {
     expect(fetchImpl).toHaveBeenCalledTimes(2);
   });
 
-  it("returns 502 for operator webhook failures instead of acknowledging early", async () => {
+  it("acknowledges operator webhook even when background processing fails", async () => {
     const fetchImpl = vi.fn<typeof fetch>(async () =>
       new Response("operator prepare failed", {
         status: 500,
@@ -168,15 +168,94 @@ describe("bot runtime server", () => {
       body: JSON.stringify({ update_id: 2 }),
     });
 
-    expect(response.status).toBe(502);
-    await expect(response.json()).resolves.toEqual(
-      expect.objectContaining({
-        error: expect.stringContaining(
-          "go api /internal/bot-runtime/operator/prepare returned 500",
-        ),
-      }),
-    );
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({ ok: true });
+    await new Promise((resolve) => setTimeout(resolve, 0));
     expect(fetchImpl).toHaveBeenCalledTimes(1);
+  });
+
+  it("acknowledges operator webhook before background prepare and apply complete", async () => {
+    const fetchImpl = vi.fn<typeof fetch>(async (input) => {
+      const url = new URL(
+        typeof input === "string" || input instanceof URL
+          ? input.toString()
+          : input.url,
+      );
+      if (url.pathname === "/internal/bot-runtime/operator/prepare") {
+        await new Promise((resolve) => setTimeout(resolve, 25));
+        return Response.json({
+          skip: false,
+          session: {
+            binding: {
+              kind: "bound",
+              workspaceId: "ws_smoke",
+              userId: "usr_1",
+              chatId: "123456",
+            },
+            interaction: { kind: "idle" },
+            recentEventIds: [],
+          },
+          event: {
+            type: "message",
+            eventId: "telegram:update:2",
+            text: "/dashboard",
+          },
+          context: {
+            linkBindings: [],
+            workspaces: [
+              {
+                id: "ws_smoke",
+                name: "Smoke Workspace",
+                dashboard: {
+                  todayBookings: 1,
+                  newMessages: 2,
+                  revenue: 3000,
+                  freeSlots: 4,
+                  nextSlot: "Thu 19.03 14:00",
+                },
+                conversations: [],
+                weekSlots: [],
+                reminders: [],
+                settings: {
+                  autoReply: true,
+                  handoffEnabled: true,
+                  telegramChatLabel: "123456",
+                  webhookUrl: "https://example.com/webhooks/telegram/operator",
+                  faqQuestions: [],
+                },
+              },
+            ],
+          },
+          snapshot: {
+            accountId: "cha_operator",
+            updateId: 2,
+            chatId: "123456",
+            telegramUserId: "777",
+          },
+        });
+      }
+
+      if (url.pathname === "/internal/bot-runtime/operator/apply") {
+        return Response.json({ ok: true });
+      }
+
+      throw new Error(`unexpected path ${url.pathname}`);
+    });
+
+    const { baseURL } = await startTestServer(fetchImpl);
+    const response = await fetch(`${baseURL}/webhooks/telegram/operator`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Telegram-Bot-Api-Secret-Token": "operator-secret",
+      },
+      body: JSON.stringify({ update_id: 2 }),
+    });
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({ ok: true });
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
   });
 });
 

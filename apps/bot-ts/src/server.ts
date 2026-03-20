@@ -23,6 +23,7 @@ import {
 const DEFAULT_PORT = 3100;
 const BODY_LIMIT_BYTES = 1 << 20;
 const DEFAULT_HTTP_TIMEOUT_MS = 10_000;
+const DEFAULT_OPERATOR_HTTP_TIMEOUT_MS = 30_000;
 
 export interface BotRuntimeServerConfig {
   readonly port: number;
@@ -126,6 +127,10 @@ export function createBotRuntimeServer(
   const handleOperatorEventImpl =
     deps.handleOperatorEventImpl ?? defaultHandleOperatorEvent;
   const httpTimeoutMs = config.httpTimeoutMs ?? DEFAULT_HTTP_TIMEOUT_MS;
+  const operatorHttpTimeoutMs = Math.max(
+    httpTimeoutMs,
+    DEFAULT_OPERATOR_HTTP_TIMEOUT_MS,
+  );
 
   return createServer(async (req, res) => {
     try {
@@ -243,8 +248,10 @@ export function createBotRuntimeServer(
     }
 
     const update = await readJSONBody(req);
-    await processOperatorWebhook(secret, update);
     writeJSON(res, 200, { ok: true });
+    void processOperatorWebhook(secret, update).catch((error) => {
+      logger.error("[bot-ts] operator webhook processing failed after ack:", error);
+    });
   }
 
   async function processOperatorWebhook(
@@ -257,6 +264,7 @@ export function createBotRuntimeServer(
         secret,
         update,
       },
+      operatorHttpTimeoutMs,
     );
     if (prepared.skip) {
       return;
@@ -277,6 +285,7 @@ export function createBotRuntimeServer(
         snapshot: prepared.snapshot,
         transition,
       },
+      operatorHttpTimeoutMs,
     );
     if (applied.duplicate) {
       logger.warn("[bot-ts] duplicate operator update skipped", {
@@ -289,6 +298,7 @@ export function createBotRuntimeServer(
   async function postGoJSON<TResponse>(
     path: string,
     body: unknown,
+    timeoutMs = httpTimeoutMs,
   ): Promise<TResponse> {
     let response: Response;
     try {
@@ -299,7 +309,7 @@ export function createBotRuntimeServer(
           "X-Bot-Runtime-Token": config.runtimeToken,
         },
         body: JSON.stringify(body),
-        signal: AbortSignal.timeout(httpTimeoutMs),
+        signal: AbortSignal.timeout(timeoutMs),
       });
     } catch (error) {
       const message =
