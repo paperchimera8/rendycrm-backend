@@ -1,7 +1,9 @@
 FROM node:20-alpine AS builder
 WORKDIR /app
 
+ARG VITE_APP_BASE_PATH=/
 ARG VITE_API_BASE_URL=/api
+ENV VITE_APP_BASE_PATH=${VITE_APP_BASE_PATH}
 ENV VITE_API_BASE_URL=${VITE_API_BASE_URL}
 
 COPY apps/web/package.json apps/web/package-lock.json ./
@@ -12,6 +14,7 @@ RUN npm run build
 
 FROM nginx:1.27-alpine
 ENV NGINX_PORT=8080
+ENV APP_BASE_PATH=/
 ENV API_BASE_URL=/api
 ENV API_UPSTREAM=http://api:3000
 

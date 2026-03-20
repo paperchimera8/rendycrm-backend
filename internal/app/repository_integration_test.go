@@ -243,6 +243,139 @@ func TestRepairScheduleConsistencyFixesLegacyState(t *testing.T) {
 	}
 }
 
+func TestEnqueueDueClientTelegramRemindersQueuesSingleReminder(t *testing.T) {
+	repo, db, workspaceID, customerID, cleanup := newIntegrationRepository(t, "Europe/Moscow")
+	defer cleanup()
+
+	seedInboxChannelAccount(t, db, workspaceID, "cha_tg_reminder", ChannelTelegram, "telegram-secret")
+	if _, err := db.ExecContext(context.Background(), `
+		INSERT INTO customer_channel_identities (id, customer_id, workspace_id, provider, external_id, username)
+		VALUES ('cci_reminder', $1, $2, 'telegram', 'tg-chat-100', 'tg-user')
+	`, customerID, workspaceID); err != nil {
+		t.Fatalf("seed telegram identity: %v", err)
+	}
+
+	loc := mustLocation(t, "Europe/Moscow")
+	now := time.Date(2026, 3, 20, 10, 0, 0, 0, time.UTC)
+	startsAt := time.Date(2026, 3, 20, 16, 30, 0, 0, loc).UTC()
+	endsAt := startsAt.Add(time.Hour)
+
+	booking, err := repo.CreateConfirmedBooking(context.Background(), workspaceID, customerID, startsAt, endsAt, 4500, "Reminder booking")
+	if err != nil {
+		t.Fatalf("create confirmed booking: %v", err)
+	}
+	if !booking.ClientReminderEnabled {
+		t.Fatal("expected reminders to be enabled by default")
+	}
+
+	count, err := repo.EnqueueDueClientTelegramReminders(context.Background(), now, 4*time.Hour, 10)
+	if err != nil {
+		t.Fatalf("enqueue due reminders: %v", err)
+	}
+	if count != 1 {
+		t.Fatalf("expected one queued reminder, got %d", count)
+	}
+
+	refreshed, err := repo.Booking(context.Background(), workspaceID, booking.ID)
+	if err != nil {
+		t.Fatalf("reload booking after reminder enqueue: %v", err)
+	}
+	if refreshed.ClientReminderSentAt == nil {
+		t.Fatal("expected reminder_sent_at to be set after queueing reminder")
+	}
+
+	var (
+		outboundCount int
+		payload       string
+	)
+	if err := db.QueryRowContext(context.Background(), `
+		SELECT COUNT(*), COALESCE(MAX(payload_json::text), '')
+		FROM outbound_messages
+		WHERE workspace_id = $1
+		  AND channel_account_id = 'cha_tg_reminder'
+		  AND kind = 'telegram.send_text'
+	`, workspaceID).Scan(&outboundCount, &payload); err != nil {
+		t.Fatalf("query queued outbound reminder: %v", err)
+	}
+	if outboundCount != 1 {
+		t.Fatalf("expected one outbound reminder, got %d", outboundCount)
+	}
+	if !strings.Contains(payload, "tg-chat-100") {
+		t.Fatalf("expected outbound payload to target telegram chat, got %s", payload)
+	}
+	if !strings.Contains(payload, "Напоминание") {
+		t.Fatalf("expected outbound payload to contain reminder text, got %s", payload)
+	}
+
+	count, err = repo.EnqueueDueClientTelegramReminders(context.Background(), now.Add(time.Minute), 4*time.Hour, 10)
+	if err != nil {
+		t.Fatalf("enqueue due reminders second pass: %v", err)
+	}
+	if count != 0 {
+		t.Fatalf("expected no reminders on second pass, got %d", count)
+	}
+}
+
+func TestReminderToggleAndRescheduleResetSentAt(t *testing.T) {
+	repo, db, workspaceID, customerID, cleanup := newIntegrationRepository(t, "Europe/Moscow")
+	defer cleanup()
+
+	loc := mustLocation(t, "Europe/Moscow")
+	oldStart := time.Date(2026, 3, 20, 12, 0, 0, 0, loc).UTC()
+	oldEnd := oldStart.Add(time.Hour)
+	newStart := time.Date(2026, 3, 20, 15, 0, 0, 0, loc).UTC()
+	newEnd := newStart.Add(time.Hour)
+
+	booking, err := repo.CreateConfirmedBooking(context.Background(), workspaceID, customerID, oldStart, oldEnd, 4300, "Original")
+	if err != nil {
+		t.Fatalf("create confirmed booking: %v", err)
+	}
+	if booking.ClientReminderSentAt != nil {
+		t.Fatal("expected a new booking to have no sent reminder")
+	}
+
+	if _, err := db.ExecContext(context.Background(), `
+		UPDATE bookings
+		SET client_reminder_sent_at = NOW()
+		WHERE id = $1 AND workspace_id = $2
+	`, booking.ID, workspaceID); err != nil {
+		t.Fatalf("mark reminder as sent: %v", err)
+	}
+
+	toggledOff, err := repo.SetBookingClientReminderEnabled(context.Background(), workspaceID, booking.ID, false)
+	if err != nil {
+		t.Fatalf("toggle reminder off: %v", err)
+	}
+	if toggledOff.ClientReminderEnabled {
+		t.Fatal("expected reminder to be disabled")
+	}
+	if toggledOff.ClientReminderSentAt == nil {
+		t.Fatal("expected sent reminder timestamp to stay intact when disabling reminder")
+	}
+
+	toggledOn, err := repo.SetBookingClientReminderEnabled(context.Background(), workspaceID, booking.ID, true)
+	if err != nil {
+		t.Fatalf("toggle reminder on: %v", err)
+	}
+	if !toggledOn.ClientReminderEnabled {
+		t.Fatal("expected reminder to be enabled")
+	}
+	if toggledOn.ClientReminderSentAt == nil {
+		t.Fatal("expected sent reminder timestamp to remain unchanged when re-enabling")
+	}
+
+	rescheduled, err := repo.RescheduleConfirmedBooking(context.Background(), workspaceID, booking.ID, newStart, newEnd, 4500, "Moved")
+	if err != nil {
+		t.Fatalf("reschedule confirmed booking: %v", err)
+	}
+	if rescheduled.ClientReminderSentAt != nil {
+		t.Fatal("expected reschedule to clear sent reminder timestamp")
+	}
+	if !rescheduled.ClientReminderEnabled {
+		t.Fatal("expected reschedule to preserve enabled reminder flag")
+	}
+}
+
 func TestMasterProfileAndClientBotRoute(t *testing.T) {
 	repo, db, workspaceID, _, cleanup := newIntegrationRepository(t, "Europe/Moscow")
 	defer cleanup()
@@ -292,6 +425,101 @@ func TestMasterProfileAndClientBotRoute(t *testing.T) {
 	}
 	if _, err := repo.ClientBotRouteByChat(context.Background(), "cha_test_route", "chat_42"); err == nil {
 		t.Fatal("expected cleared route to be missing")
+	}
+}
+
+func TestRunMigrationWithoutDemoSeedLeavesDatabaseClean(t *testing.T) {
+	db, cleanup := newIntegrationDB(t)
+	defer cleanup()
+
+	var count int
+	if err := db.QueryRowContext(context.Background(), `SELECT COUNT(*) FROM workspaces WHERE id = $1`, demoWorkspaceID).Scan(&count); err != nil {
+		t.Fatalf("count demo workspace: %v", err)
+	}
+	if count != 0 {
+		t.Fatalf("expected no demo workspace after migrations only, got %d", count)
+	}
+}
+
+func TestCleanupDemoDataRemovesSeededRowsAndPreservesLiveData(t *testing.T) {
+	db, cleanup := newIntegrationDB(t)
+	defer cleanup()
+
+	ctx := context.Background()
+	if err := seedDemoData(ctx, db); err != nil {
+		t.Fatalf("seed demo data: %v", err)
+	}
+	repo := NewRepository(db)
+	if err := repo.EnsureSlotSystem(ctx, demoWorkspaceID); err != nil {
+		t.Fatalf("ensure slot system: %v", err)
+	}
+	profile, err := repo.UpdateMasterProfile(ctx, demoWorkspaceID, "+7 981 188 48 27")
+	if err != nil {
+		t.Fatalf("update master profile: %v", err)
+	}
+	if profile.MasterPhoneNormalized != "79811884827" {
+		t.Fatalf("unexpected master phone after update: %+v", profile)
+	}
+
+	if _, err := db.ExecContext(ctx, `
+		INSERT INTO customers (id, workspace_id, name, notes) VALUES ('cus_real', $1, 'Real Customer', 'from bot')
+	`, demoWorkspaceID); err != nil {
+		t.Fatalf("insert real customer: %v", err)
+	}
+	if _, err := db.ExecContext(ctx, `
+		INSERT INTO customer_channel_identities (id, customer_id, workspace_id, provider, external_id, username)
+		VALUES ('cci_real', 'cus_real', $1, 'telegram', 'real-chat-1', 'real-user')
+	`, demoWorkspaceID); err != nil {
+		t.Fatalf("insert real identity: %v", err)
+	}
+	if _, err := db.ExecContext(ctx, `
+		INSERT INTO conversations (id, workspace_id, customer_id, channel_account_id, provider, external_chat_id, status, assigned_user_id, unread_count, ai_summary, intent, last_message_text, last_inbound_at, updated_at, created_at)
+		VALUES ('cnv_real', $1, 'cus_real', 'cha_1', 'telegram', 'real-chat-1', 'human', 'usr_1', 1, '', 'other', 'Реальное сообщение', NOW(), NOW(), NOW())
+	`, demoWorkspaceID); err != nil {
+		t.Fatalf("insert real conversation: %v", err)
+	}
+	if _, err := db.ExecContext(ctx, `
+		INSERT INTO messages (id, conversation_id, workspace_id, external_message_id, direction, sender_type, body, delivery_status, dedup_key, created_at)
+		VALUES ('msg_real', 'cnv_real', $1, 'real-ext-1', 'inbound', 'customer', 'Реальное сообщение', 'received', 'real-msg-1', NOW())
+	`, demoWorkspaceID); err != nil {
+		t.Fatalf("insert real message: %v", err)
+	}
+
+	if err := cleanupDemoData(ctx, db); err != nil {
+		t.Fatalf("cleanup demo data (first): %v", err)
+	}
+	if err := cleanupDemoData(ctx, db); err != nil {
+		t.Fatalf("cleanup demo data (second): %v", err)
+	}
+
+	assertMissingByID(t, db, "customers", "cus_1")
+	assertMissingByID(t, db, "conversations", "cnv_1")
+	assertMissingByID(t, db, "messages", "msg_1")
+	assertMissingByID(t, db, "reviews", "rev_1")
+	assertMissingByID(t, db, "faq_items", "faq_1")
+	assertMissingByID(t, db, "analytics_daily", "anl_1")
+
+	assertPresentByID(t, db, "customers", "cus_real")
+	assertPresentByID(t, db, "conversations", "cnv_real")
+	assertPresentByID(t, db, "messages", "msg_real")
+	assertPresentByID(t, db, "channel_accounts", "cha_1")
+	assertPresentByID(t, db, "channel_accounts", "cha_2")
+	assertPresentByID(t, db, "channel_accounts", "cha_3")
+
+	var workspaceMembers int
+	if err := db.QueryRowContext(ctx, `SELECT COUNT(*) FROM workspace_members WHERE workspace_id = $1 AND user_id = 'usr_1'`, demoWorkspaceID).Scan(&workspaceMembers); err != nil {
+		t.Fatalf("count workspace member: %v", err)
+	}
+	if workspaceMembers != 1 {
+		t.Fatalf("expected admin membership to stay intact, got %d", workspaceMembers)
+	}
+
+	currentProfile, err := repo.MasterProfile(ctx, demoWorkspaceID)
+	if err != nil {
+		t.Fatalf("load master profile after cleanup: %v", err)
+	}
+	if currentProfile.MasterPhoneRaw != "+7 981 188 48 27" || currentProfile.MasterPhoneNormalized != "79811884827" {
+		t.Fatalf("master profile was not preserved: %+v", currentProfile)
 	}
 }
 
@@ -700,5 +928,72 @@ func seedInboxChannelAccount(t *testing.T, db *sql.DB, workspaceID, accountID st
 		VALUES ($1, $2, $3, $4, $5, $6, $7, TRUE, TRUE, $8)
 	`, accountID, workspaceID, provider, kind, string(provider)+" account", string(provider)+"-ext", secret, botUsername); err != nil {
 		t.Fatalf("seed channel account: %v", err)
+	}
+}
+
+func newIntegrationDB(t *testing.T) (*sql.DB, func()) {
+	t.Helper()
+	adminDSN := os.Getenv("TEST_POSTGRES_DSN")
+	if adminDSN == "" {
+		t.Skip("TEST_POSTGRES_DSN is not set")
+	}
+	dbName := fmt.Sprintf("rendycrm_test_%d", time.Now().UnixNano())
+
+	admin, err := sql.Open("pgx", adminDSN)
+	if err != nil {
+		t.Fatalf("open admin db: %v", err)
+	}
+	defer admin.Close()
+	if _, err := admin.ExecContext(context.Background(), fmt.Sprintf(`CREATE DATABASE %s`, dbName)); err != nil {
+		t.Fatalf("create test db: %v", err)
+	}
+
+	dbDSN := strings.Replace(adminDSN, "/postgres?", "/"+dbName+"?", 1)
+	if !strings.Contains(dbDSN, "/"+dbName+"?") {
+		dbDSN = strings.TrimSuffix(adminDSN, "/postgres") + "/" + dbName + "?sslmode=disable"
+	}
+	db, err := sql.Open("pgx", dbDSN)
+	if err != nil {
+		t.Fatalf("open test db: %v", err)
+	}
+
+	migrationsPath := migrationsPathFromThisFile(t)
+	if err := runMigration(context.Background(), db, migrationsPath); err != nil {
+		t.Fatalf("run migrations: %v", err)
+	}
+
+	cleanup := func() {
+		_ = db.Close()
+		admin, err := sql.Open("pgx", adminDSN)
+		if err != nil {
+			return
+		}
+		defer admin.Close()
+		_, _ = admin.ExecContext(context.Background(), fmt.Sprintf(`DROP DATABASE %s WITH (FORCE)`, dbName))
+	}
+	return db, cleanup
+}
+
+func assertMissingByID(t *testing.T, db *sql.DB, table, id string) {
+	t.Helper()
+	var count int
+	query := fmt.Sprintf(`SELECT COUNT(*) FROM %s WHERE id = $1`, table)
+	if err := db.QueryRowContext(context.Background(), query, id).Scan(&count); err != nil {
+		t.Fatalf("count missing %s/%s: %v", table, id, err)
+	}
+	if count != 0 {
+		t.Fatalf("expected %s/%s to be removed, got count=%d", table, id, count)
+	}
+}
+
+func assertPresentByID(t *testing.T, db *sql.DB, table, id string) {
+	t.Helper()
+	var count int
+	query := fmt.Sprintf(`SELECT COUNT(*) FROM %s WHERE id = $1`, table)
+	if err := db.QueryRowContext(context.Background(), query, id).Scan(&count); err != nil {
+		t.Fatalf("count present %s/%s: %v", table, id, err)
+	}
+	if count != 1 {
+		t.Fatalf("expected %s/%s to remain, got count=%d", table, id, count)
 	}
 }

@@ -15,7 +15,7 @@ export function Section({
   return (
     <section className={cn(className)}>
       <div className="mb-2 flex items-center justify-between">
-        <h3 className="text-sm font-bold text-[#292929]"><span className="border-b border-[#8b5cf6]/40 pb-0.5">{title}</span></h3>
+        <h3 className="text-sm font-bold text-[#292929]">{title}</h3>
         {action}
       </div>
       {children}

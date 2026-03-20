@@ -289,7 +289,7 @@ func (s *Server) handleOperatorCommand(ctx context.Context, binding OperatorBotB
 			0,
 			nextSlot,
 		)
-		return []BotOutboundMessage{{ChatID: binding.TelegramChatID, Text: text, Buttons: []string{"/dialogs", "/slots", "/settings"}}}, nil
+		return []BotOutboundMessage{{ChatID: binding.TelegramChatID, Text: text, Buttons: []string{"/dialogs", "/slots", "/reminders", "/settings"}}}, nil
 	case command == "/dialogs" || command == "💬 Диалоги" || command == "🔥 Новые":
 		conversations, err := s.runtime.repository.Conversations(ctx, binding.WorkspaceID)
 		if err != nil {
@@ -326,6 +326,8 @@ func (s *Server) handleOperatorCommand(ctx context.Context, binding OperatorBotB
 			lines = append(lines, fmt.Sprintf("%s — %d", day.Label, len(day.Slots)))
 		}
 		return []BotOutboundMessage{{ChatID: binding.TelegramChatID, Text: strings.Join(lines, "\n")}}, nil
+	case command == "/reminders" || command == "🔔 Напоминания":
+		return s.handleOperatorReminderMenu(ctx, binding)
 	case command == "/settings" || command == "⚙️ Настройки":
 		settings, err := s.runtime.repository.OperatorBotSettings(ctx, binding.WorkspaceID, binding.UserID, s.cfg.OperatorBotUsername, s.cfg.PublicBaseURL)
 		if err != nil {
@@ -459,8 +461,21 @@ func (s *Server) handleOperatorCommand(ctx context.Context, binding OperatorBotB
 			return nil, err
 		}
 		return []BotOutboundMessage{{ChatID: binding.TelegramChatID, Text: "Автоответ выключен."}}, nil
+	case strings.HasPrefix(command, "reminder:toggle:"):
+		parts := strings.Split(command, ":")
+		if len(parts) != 4 {
+			return nil, errors.New("invalid reminder toggle payload")
+		}
+		enabled := strings.TrimSpace(parts[3]) == "on"
+		if strings.TrimSpace(parts[3]) != "on" && strings.TrimSpace(parts[3]) != "off" {
+			return nil, errors.New("invalid reminder toggle action")
+		}
+		if _, err := s.runtime.repository.SetBookingClientReminderEnabled(ctx, binding.WorkspaceID, parts[2], enabled); err != nil {
+			return nil, err
+		}
+		return s.handleOperatorReminderMenu(ctx, binding)
 	default:
-		return []BotOutboundMessage{{ChatID: binding.TelegramChatID, Text: "Доступные команды: /dashboard, /dialogs, /slots, /settings, /faq."}}, nil
+		return []BotOutboundMessage{{ChatID: binding.TelegramChatID, Text: "Доступные команды: /dashboard, /dialogs, /slots, /reminders, /settings, /faq."}}, nil
 	}
 }
 

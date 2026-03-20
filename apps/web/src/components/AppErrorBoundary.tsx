@@ -1,5 +1,6 @@
 import { Component, type ErrorInfo, type ReactNode } from 'react'
 import { clearToken } from '../lib/api'
+import { appUrl } from '../lib/basePath'
 
 type Props = {
   children: ReactNode
@@ -30,7 +31,7 @@ export class AppErrorBoundary extends Component<Props, State> {
   private onReset = () => {
     clearToken()
     this.setState({ hasError: false, message: '' })
-    window.location.href = '/login'
+    window.location.href = appUrl('/login')
   }
 
   render() {

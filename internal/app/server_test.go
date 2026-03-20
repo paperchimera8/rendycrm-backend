@@ -156,3 +156,69 @@ func TestServerServesAPIUnderPrefixWithoutFallingBackToSPA(t *testing.T) {
 		}
 	})
 }
+
+func TestServerServesMountedAppAndAPI(t *testing.T) {
+	tmpDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(tmpDir, "index.html"), []byte("<html>app</html>"), 0o644); err != nil {
+		t.Fatalf("write index: %v", err)
+	}
+	assetsDir := filepath.Join(tmpDir, "assets")
+	if err := os.MkdirAll(assetsDir, 0o755); err != nil {
+		t.Fatalf("mkdir assets: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(assetsDir, "index.js"), []byte("console.log('mounted')"), 0o644); err != nil {
+		t.Fatalf("write asset: %v", err)
+	}
+
+	server := &Server{cfg: Config{StaticDir: tmpDir, AppBasePath: "/app"}, mux: http.NewServeMux(), apiMux: http.NewServeMux()}
+	server.routes()
+
+	t.Run("mounted spa route falls back to index", func(t *testing.T) {
+		request := httptest.NewRequest(http.MethodGet, "/app/dialogs", nil)
+		recorder := httptest.NewRecorder()
+		server.serveHTTP(recorder, request)
+
+		if recorder.Code != http.StatusOK {
+			t.Fatalf("expected 200, got %d", recorder.Code)
+		}
+		if body := recorder.Body.String(); body != "<html>app</html>" {
+			t.Fatalf("unexpected body: %q", body)
+		}
+	})
+
+	t.Run("mounted asset is served", func(t *testing.T) {
+		request := httptest.NewRequest(http.MethodGet, "/app/assets/index.js", nil)
+		recorder := httptest.NewRecorder()
+		server.serveHTTP(recorder, request)
+
+		if recorder.Code != http.StatusOK {
+			t.Fatalf("expected 200, got %d", recorder.Code)
+		}
+		if body := recorder.Body.String(); body != "console.log('mounted')" {
+			t.Fatalf("unexpected body: %q", body)
+		}
+	})
+
+	t.Run("mounted api health works", func(t *testing.T) {
+		request := httptest.NewRequest(http.MethodGet, "/app/api/health", nil)
+		recorder := httptest.NewRecorder()
+		server.serveHTTP(recorder, request)
+
+		if recorder.Code != http.StatusOK {
+			t.Fatalf("expected 200, got %d", recorder.Code)
+		}
+		if body := recorder.Body.String(); body != "{\"status\":\"ok\"}\n" {
+			t.Fatalf("unexpected body: %q", body)
+		}
+	})
+
+	t.Run("requests outside mount return 404", func(t *testing.T) {
+		request := httptest.NewRequest(http.MethodGet, "/dialogs", nil)
+		recorder := httptest.NewRecorder()
+		server.serveHTTP(recorder, request)
+
+		if recorder.Code != http.StatusNotFound {
+			t.Fatalf("expected 404, got %d", recorder.Code)
+		}
+	})
+}

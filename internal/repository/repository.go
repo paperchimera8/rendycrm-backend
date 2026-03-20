@@ -84,6 +84,25 @@ func (r *Repository) Me(ctx context.Context, userID, workspaceID string) (User, 
 	return user, workspace, nil
 }
 
+func (r *Repository) Workspace(ctx context.Context, workspaceID string) (Workspace, error) {
+	const query = `
+		SELECT id, name, COALESCE(timezone, ''), COALESCE(master_phone_raw, ''), COALESCE(master_phone_normalized, '')
+		FROM workspaces
+		WHERE id = $1
+	`
+	var workspace Workspace
+	if err := r.db.QueryRowContext(ctx, query, workspaceID).Scan(
+		&workspace.ID,
+		&workspace.Name,
+		&workspace.Timezone,
+		&workspace.MasterPhoneRaw,
+		&workspace.MasterPhoneNormalized,
+	); err != nil {
+		return Workspace{}, err
+	}
+	return workspace, nil
+}
+
 func (r *Repository) Dashboard(ctx context.Context, workspaceID string) (Dashboard, error) {
 	now := time.Now().UTC()
 	todayStart := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC)
@@ -944,7 +963,11 @@ func (r *Repository) UpdateBookingStatus(ctx context.Context, workspaceID, booki
 			SET daily_slot_id = NULLIF($3, ''),
 				slot_hold_id = CASE WHEN $4 IN ('confirmed', 'completed', 'cancelled') THEN NULL ELSE slot_hold_id END,
 				status = $4,
-				amount_cents = $5
+				amount_cents = $5,
+				client_reminder_sent_at = CASE
+					WHEN $4 = 'confirmed' THEN NULL
+					ELSE client_reminder_sent_at
+				END
 			WHERE id = $1 AND workspace_id = $2
 		`, bookingID, workspaceID, dailySlotID, status, *amount*100); err != nil {
 			return Booking{}, err
@@ -954,7 +977,11 @@ func (r *Repository) UpdateBookingStatus(ctx context.Context, workspaceID, booki
 			UPDATE bookings
 			SET daily_slot_id = NULLIF($3, ''),
 				slot_hold_id = CASE WHEN $4 IN ('confirmed', 'completed', 'cancelled') THEN NULL ELSE slot_hold_id END,
-				status = $4
+				status = $4,
+				client_reminder_sent_at = CASE
+					WHEN $4 = 'confirmed' THEN NULL
+					ELSE client_reminder_sent_at
+				END
 			WHERE id = $1 AND workspace_id = $2
 		`, bookingID, workspaceID, dailySlotID, status); err != nil {
 			return Booking{}, err
@@ -1037,7 +1064,8 @@ func (r *Repository) RescheduleBooking(ctx context.Context, workspaceID, booking
 			starts_at = $5,
 			ends_at = $6,
 			status = $7,
-			notes = $8
+			notes = $8,
+			client_reminder_sent_at = NULL
 		WHERE id = $1 AND workspace_id = $2
 	`, bookingID, workspaceID, slotID, hold.ID, startsAt, endsAt, BookingPending, notes); err != nil {
 		return Booking{}, err
@@ -1106,7 +1134,8 @@ func (r *Repository) RescheduleConfirmedBooking(ctx context.Context, workspaceID
 			ends_at = $5,
 			amount_cents = $6,
 			status = 'confirmed',
-			notes = $7
+			notes = $7,
+			client_reminder_sent_at = NULL
 		WHERE id = $1 AND workspace_id = $2
 	`, bookingID, workspaceID, slotID, startsAt, endsAt, amount*100, notes); err != nil {
 		return Booking{}, err
@@ -1191,7 +1220,8 @@ func (r *Repository) RescheduleBookingToDailySlot(ctx context.Context, workspace
 			starts_at = $5,
 			ends_at = $6,
 			status = $7,
-			notes = $8
+			notes = $8,
+			client_reminder_sent_at = NULL
 		WHERE id = $1 AND workspace_id = $2
 	`, bookingID, workspaceID, dailySlotID, holdID, startsAt, endsAt, BookingPending, notes); err != nil {
 		return Booking{}, err
@@ -1271,7 +1301,8 @@ func (r *Repository) RescheduleConfirmedBookingToDailySlot(ctx context.Context, 
 			ends_at = $5,
 			amount_cents = $6,
 			status = 'confirmed',
-			notes = $7
+			notes = $7,
+			client_reminder_sent_at = NULL
 		WHERE id = $1 AND workspace_id = $2
 	`, bookingID, workspaceID, dailySlotID, startsAt, endsAt, amount*100, notes); err != nil {
 		return Booking{}, err
@@ -1292,22 +1323,62 @@ func (r *Repository) RescheduleConfirmedBookingToDailySlot(ctx context.Context, 
 
 func (r *Repository) Booking(ctx context.Context, workspaceID, bookingID string) (Booking, error) {
 	var booking Booking
+	var reminderSentAt sql.NullTime
 	if err := r.db.QueryRowContext(ctx, `
-		SELECT b.id, b.workspace_id, b.customer_id, c.name, COALESCE(b.daily_slot_id, ''), b.starts_at, b.ends_at, COALESCE(b.amount_cents, 0) / 100, b.status, b.source, b.notes
+		SELECT
+			b.id,
+			b.workspace_id,
+			b.customer_id,
+			c.name,
+			COALESCE(b.daily_slot_id, ''),
+			b.starts_at,
+			b.ends_at,
+			COALESCE(b.amount_cents, 0) / 100,
+			b.status,
+			b.source,
+			b.notes,
+			COALESCE(b.client_reminder_enabled, TRUE),
+			b.client_reminder_sent_at
 		FROM bookings b
 		JOIN customers c ON c.id = b.customer_id
 		WHERE b.id = $1 AND b.workspace_id = $2
 	`, bookingID, workspaceID).Scan(
-		&booking.ID, &booking.WorkspaceID, &booking.CustomerID, &booking.CustomerName, &booking.DailySlotID, &booking.StartsAt, &booking.EndsAt, &booking.Amount, &booking.Status, &booking.Source, &booking.Notes,
+		&booking.ID,
+		&booking.WorkspaceID,
+		&booking.CustomerID,
+		&booking.CustomerName,
+		&booking.DailySlotID,
+		&booking.StartsAt,
+		&booking.EndsAt,
+		&booking.Amount,
+		&booking.Status,
+		&booking.Source,
+		&booking.Notes,
+		&booking.ClientReminderEnabled,
+		&reminderSentAt,
 	); err != nil {
 		return Booking{}, err
 	}
+	setBookingReminderFields(&booking, booking.ClientReminderEnabled, reminderSentAt)
 	return booking, nil
 }
 
 func (r *Repository) Bookings(ctx context.Context, workspaceID, statusFilter string) ([]Booking, error) {
 	query := `
-		SELECT b.id, b.workspace_id, b.customer_id, c.name, COALESCE(b.daily_slot_id, ''), b.starts_at, b.ends_at, COALESCE(b.amount_cents, 0) / 100, b.status, b.source, b.notes
+		SELECT
+			b.id,
+			b.workspace_id,
+			b.customer_id,
+			c.name,
+			COALESCE(b.daily_slot_id, ''),
+			b.starts_at,
+			b.ends_at,
+			COALESCE(b.amount_cents, 0) / 100,
+			b.status,
+			b.source,
+			b.notes,
+			COALESCE(b.client_reminder_enabled, TRUE),
+			b.client_reminder_sent_at
 		FROM bookings b
 		JOIN customers c ON c.id = b.customer_id
 		WHERE b.workspace_id = $1
@@ -1325,7 +1396,10 @@ func (r *Repository) Bookings(ctx context.Context, workspaceID, statusFilter str
 	defer rows.Close()
 	var items []Booking
 	for rows.Next() {
-		var booking Booking
+		var (
+			booking        Booking
+			reminderSentAt sql.NullTime
+		)
 		if err := rows.Scan(
 			&booking.ID,
 			&booking.WorkspaceID,
@@ -1338,9 +1412,12 @@ func (r *Repository) Bookings(ctx context.Context, workspaceID, statusFilter str
 			&booking.Status,
 			&booking.Source,
 			&booking.Notes,
+			&booking.ClientReminderEnabled,
+			&reminderSentAt,
 		); err != nil {
 			return nil, err
 		}
+		setBookingReminderFields(&booking, booking.ClientReminderEnabled, reminderSentAt)
 		items = append(items, booking)
 	}
 	return items, rows.Err()

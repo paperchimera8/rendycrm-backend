@@ -110,3 +110,19 @@ func TestHandleTelegramOperatorUpdateIgnoresCallbackWithoutMessage(t *testing.T)
 		t.Fatalf("expected operator callback without message to be ignored safely, got %v", err)
 	}
 }
+
+func TestNormalizeOperatorCommandReminderToggle(t *testing.T) {
+	got := normalizeOperatorCommand("rmd:toggle:bok_123:off:2")
+	if want := "reminder:toggle:bok_123:off"; got != want {
+		t.Fatalf("unexpected reminder toggle normalization: got %q want %q", got, want)
+	}
+}
+
+func TestTelegramButtonLabelReminderToggleUsesPosition(t *testing.T) {
+	if got, want := telegramButtonLabel("rmd:toggle:bok_123:on:3"), "#3 Вкл"; got != want {
+		t.Fatalf("unexpected reminder on label: got %q want %q", got, want)
+	}
+	if got, want := telegramButtonLabel("rmd:toggle:bok_123:off:4"), "#4 Выкл"; got != want {
+		t.Fatalf("unexpected reminder off label: got %q want %q", got, want)
+	}
+}

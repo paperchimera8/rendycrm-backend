@@ -21,6 +21,19 @@ import (
 
 const demoWorkspaceID = "ws_demo"
 
+var (
+	demoCustomerIDs              = []string{"cus_1", "cus_2", "cus_3", "cus_4", "cus_5"}
+	demoCustomerContactIDs       = []string{"cct_1", "cct_2", "cct_3", "cct_4", "cct_5", "cct_6"}
+	demoCustomerIdentityIDs      = []string{"cci_1", "cci_2", "cci_3", "cci_4", "cci_5"}
+	demoConversationIDs          = []string{"cnv_1", "cnv_2", "cnv_3", "cnv_4", "cnv_5"}
+	demoMessageIDs               = []string{"msg_1", "msg_2", "msg_3", "msg_4", "msg_5", "msg_6", "msg_7", "msg_8", "msg_9", "msg_10"}
+	demoReviewIDs                = []string{"rev_1"}
+	demoFAQIDs                   = []string{"faq_1", "faq_2"}
+	demoAnalyticsIDs             = []string{"anl_1"}
+	demoLegacyAvailabilityRuleIDs = []string{"avr_1", "avr_2", "avr_3", "avr_4", "avr_5"}
+	demoBookingIDs               = []string{"bok_1"}
+)
+
 type SessionStore interface {
 	Create(ctx context.Context, session Session) error
 	Get(ctx context.Context, token string) (Session, error)
@@ -132,6 +145,10 @@ func (r *Runtime) Close() error {
 	return nil
 }
 
+func (r *Runtime) CleanupDemoData(ctx context.Context) error {
+	return cleanupDemoData(ctx, r.db)
+}
+
 func (r *Runtime) bootstrap(ctx context.Context) error {
 	if err := runMigration(ctx, r.db, r.cfg.MigrationsPath); err != nil {
 		return err
@@ -237,7 +254,10 @@ func seedDemoData(ctx context.Context, db *sql.DB) error {
 		args  []any
 	}{
 		{`INSERT INTO workspaces (id, name, timezone, master_phone_raw, master_phone_normalized) VALUES ($1, $2, $3, $4, $5)
-		  ON CONFLICT (id) DO UPDATE SET timezone = EXCLUDED.timezone, master_phone_raw = EXCLUDED.master_phone_raw, master_phone_normalized = EXCLUDED.master_phone_normalized`, []any{demoWorkspaceID, "Rendy CRM Demo", "Europe/Moscow", "+7 (999) 111-22-33", "79991112233"}},
+		  ON CONFLICT (id) DO UPDATE SET
+			timezone = EXCLUDED.timezone,
+			master_phone_raw = COALESCE(NULLIF(workspaces.master_phone_raw, ''), EXCLUDED.master_phone_raw),
+			master_phone_normalized = COALESCE(NULLIF(workspaces.master_phone_normalized, ''), EXCLUDED.master_phone_normalized)`, []any{demoWorkspaceID, "Rendy CRM Demo", "Europe/Moscow", "+7 (999) 111-22-33", "79991112233"}},
 		{`INSERT INTO workspaces (id, name, timezone) VALUES ($1, $2, $3) ON CONFLICT (id) DO NOTHING`, []any{"ws_system", "System Workspace", "UTC"}},
 		{`INSERT INTO users (id, email, password_hash, name, status) VALUES ($1, $2, $3, $4, 'active') ON CONFLICT (id) DO NOTHING`, []any{"usr_1", "operator@rendycrm.local", passwordHash, "Main Operator"}},
 		{`INSERT INTO workspace_members (id, workspace_id, user_id, role) VALUES ($1, $2, $3, $4) ON CONFLICT (workspace_id, user_id) DO NOTHING`, []any{"wsm_1", demoWorkspaceID, "usr_1", "admin"}},
@@ -356,6 +376,112 @@ func seedDemoData(ctx context.Context, db *sql.DB) error {
 		if _, err := db.ExecContext(ctx, query, demoWorkspaceID); err != nil {
 			return fmt.Errorf("seed cleanup failed: %w", err)
 		}
+	}
+	return nil
+}
+
+func cleanupDemoData(ctx context.Context, db *sql.DB) error {
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin demo cleanup tx: %w", err)
+	}
+	defer tx.Rollback()
+
+	execDeleteIDs := func(query string, ids []string) error {
+		if len(ids) == 0 {
+			return nil
+		}
+		for _, id := range ids {
+			if _, err := tx.ExecContext(ctx, query, id, demoWorkspaceID); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+
+	cleanupStatements := []struct {
+		query string
+		args  []any
+	}{
+		{`DELETE FROM operator_bot_link_codes WHERE workspace_id = $1 AND code LIKE 'link_%' AND user_id = 'usr_1'`, []any{demoWorkspaceID}},
+		{`DELETE FROM operator_bot_bindings WHERE workspace_id = $1 AND user_id = 'usr_1' AND telegram_chat_id LIKE '%demo%'`, []any{demoWorkspaceID}},
+		{`DELETE FROM telegram_update_dedup WHERE workspace_id = $1 AND (COALESCE(chat_id, '') LIKE '%demo%' OR COALESCE(callback_id, '') LIKE 'seed-%' OR COALESCE(update_id::text, '') LIKE 'seed-%')`, []any{demoWorkspaceID}},
+		{`DELETE FROM outbound_messages WHERE workspace_id = $1 AND COALESCE(provider_message_id, '') LIKE 'op-msg-%'`, []any{demoWorkspaceID}},
+		{`DELETE FROM notifications WHERE workspace_id = $1 AND customer_id = ANY($2)`, []any{demoWorkspaceID, demoCustomerIDs}},
+		{`DELETE FROM slot_holds WHERE workspace_id = $1 AND customer_id = ANY($2)`, []any{demoWorkspaceID, demoCustomerIDs}},
+		{`DELETE FROM bookings WHERE workspace_id = $1 AND customer_id = ANY($2)`, []any{demoWorkspaceID, demoCustomerIDs}},
+		{`DELETE FROM reviews WHERE workspace_id = $1 AND customer_id = ANY($2)`, []any{demoWorkspaceID, demoCustomerIDs}},
+		{`DELETE FROM messages WHERE workspace_id = $1 AND dedup_key LIKE 'seed-%'`, []any{demoWorkspaceID}},
+		{`DELETE FROM messages WHERE workspace_id = $1 AND conversation_id = ANY($2)`, []any{demoWorkspaceID, demoConversationIDs}},
+		{`DELETE FROM conversations WHERE workspace_id = $1 AND id = ANY($2)`, []any{demoWorkspaceID, demoConversationIDs}},
+		{`DELETE FROM customer_channel_identities WHERE workspace_id = $1 AND id = ANY($2)`, []any{demoWorkspaceID, demoCustomerIdentityIDs}},
+		{`DELETE FROM customer_contacts WHERE id = ANY($1)`, []any{demoCustomerContactIDs}},
+		{`DELETE FROM customers WHERE workspace_id = $1 AND id = ANY($2)`, []any{demoWorkspaceID, demoCustomerIDs}},
+		{`DELETE FROM faq_items WHERE workspace_id = $1 AND id = ANY($2)`, []any{demoWorkspaceID, demoFAQIDs}},
+		{`DELETE FROM analytics_daily WHERE workspace_id = $1 AND id = ANY($2)`, []any{demoWorkspaceID, demoAnalyticsIDs}},
+		{`DELETE FROM reviews WHERE workspace_id = $1 AND id = ANY($2)`, []any{demoWorkspaceID, demoReviewIDs}},
+		{`DELETE FROM availability_rules WHERE workspace_id = $1 AND id = ANY($2)`, []any{demoWorkspaceID, demoLegacyAvailabilityRuleIDs}},
+		{`DELETE FROM slot_holds WHERE workspace_id = $1 AND daily_slot_id IN (SELECT COALESCE(daily_slot_id, '') FROM bookings WHERE workspace_id = $1 AND id = ANY($2))`, []any{demoWorkspaceID, demoBookingIDs}},
+		{`DELETE FROM daily_slots WHERE workspace_id = $1 AND id IN (SELECT COALESCE(daily_slot_id, '') FROM bookings WHERE workspace_id = $1 AND id = ANY($2))`, []any{demoWorkspaceID, demoBookingIDs}},
+		{`DELETE FROM bookings WHERE workspace_id = $1 AND id = ANY($2)`, []any{demoWorkspaceID, demoBookingIDs}},
+		{`DELETE FROM daily_slots WHERE workspace_id = $1 AND source_template_id IS NOT NULL AND is_manual = FALSE AND status IN ('free', 'blocked') AND NOT EXISTS (SELECT 1 FROM bookings b WHERE b.daily_slot_id = daily_slots.id AND b.status <> 'cancelled')`, []any{demoWorkspaceID}},
+		{`UPDATE daily_slots SET is_manual = TRUE, source_template_id = NULL WHERE workspace_id = $1 AND source_template_id IS NOT NULL`, []any{demoWorkspaceID}},
+		{`DELETE FROM slot_templates WHERE workspace_id = $1`, []any{demoWorkspaceID}},
+	}
+	for _, statement := range cleanupStatements {
+		if _, err := tx.ExecContext(ctx, statement.query, statement.args...); err != nil {
+			return fmt.Errorf("cleanup demo statement failed: %w", err)
+		}
+	}
+	if err := execDeleteIDs(`DELETE FROM messages WHERE id = $1 AND workspace_id = $2`, demoMessageIDs); err != nil {
+		return fmt.Errorf("cleanup demo messages by id: %w", err)
+	}
+
+	if _, err := tx.ExecContext(ctx, `
+		UPDATE conversations c
+		SET last_message_text = COALESCE(lm.body, c.last_message_text),
+		    updated_at = COALESCE(lm.created_at, c.updated_at)
+		FROM (
+		    SELECT DISTINCT ON (conversation_id) conversation_id, body, created_at
+		    FROM messages
+		    WHERE workspace_id = $1
+		    ORDER BY conversation_id, created_at DESC
+		) lm
+		WHERE c.workspace_id = $1
+		  AND c.id = lm.conversation_id
+	`, demoWorkspaceID); err != nil {
+		return fmt.Errorf("rebuild conversation timestamps after demo cleanup: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx, `
+		UPDATE conversations c
+		SET unread_count = COALESCE((
+		    SELECT COUNT(*)
+		    FROM messages mi
+		    WHERE mi.workspace_id = c.workspace_id
+		      AND mi.conversation_id = c.id
+		      AND mi.direction = 'inbound'
+		      AND mi.created_at > COALESCE((
+		          SELECT MAX(mo.created_at)
+		          FROM messages mo
+		          WHERE mo.workspace_id = c.workspace_id
+		            AND mo.conversation_id = c.id
+		            AND mo.direction = 'outbound'
+		      ), '-infinity'::timestamptz)
+		), 0)
+		WHERE c.workspace_id = $1
+	`, demoWorkspaceID); err != nil {
+		return fmt.Errorf("rebuild conversation unread counts after demo cleanup: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx, `
+		UPDATE slot_settings
+		SET timezone = (SELECT timezone FROM workspaces WHERE id = $1)
+		WHERE workspace_id = $1
+	`, demoWorkspaceID); err != nil {
+		return fmt.Errorf("normalize slot settings after demo cleanup: %w", err)
+	}
+
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit demo cleanup: %w", err)
 	}
 	return nil
 }

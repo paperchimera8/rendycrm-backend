@@ -73,7 +73,11 @@ func (s *Server) dispatchOutboundMessage(ctx context.Context, item OutboundMessa
 	case OutboundKindTelegramSendInline:
 		rows := make([][]tgapi.InlineKeyboardButton, 0, len(payload.Buttons))
 		for _, button := range payload.Buttons {
-			rows = append(rows, []tgapi.InlineKeyboardButton{{Text: button.Text, CallbackData: button.CallbackData}})
+			rows = append(rows, []tgapi.InlineKeyboardButton{{
+				Text:         button.Text,
+				CallbackData: button.CallbackData,
+				URL:          button.URL,
+			}})
 		}
 		res, err := s.runtime.telegram.SendInline(ctx, token, payload.ChatID, payload.Text, rows)
 		if err != nil {
@@ -83,7 +87,11 @@ func (s *Server) dispatchOutboundMessage(ctx context.Context, item OutboundMessa
 	case OutboundKindTelegramEditInline:
 		rows := make([][]tgapi.InlineKeyboardButton, 0, len(payload.Buttons))
 		for _, button := range payload.Buttons {
-			rows = append(rows, []tgapi.InlineKeyboardButton{{Text: button.Text, CallbackData: button.CallbackData}})
+			rows = append(rows, []tgapi.InlineKeyboardButton{{
+				Text:         button.Text,
+				CallbackData: button.CallbackData,
+				URL:          button.URL,
+			}})
 		}
 		res, err := s.runtime.telegram.EditInline(ctx, token, tgapi.EditMessageTextRequest{
 			ChatID:      payload.ChatID,

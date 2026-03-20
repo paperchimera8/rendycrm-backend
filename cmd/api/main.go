@@ -4,6 +4,7 @@ import (
 	"context"
 	"log"
 	"net/http"
+	"os"
 	"os/signal"
 	"syscall"
 	"time"
@@ -16,6 +17,20 @@ func main() {
 	defer stop()
 
 	cfg := app.LoadConfig()
+	if len(os.Args) > 1 && os.Args[1] == "cleanup-demo-data" {
+		cfg.EnableDemoSeed = false
+		runtime, err := app.NewRuntime(ctx, cfg)
+		if err != nil {
+			log.Fatal(err)
+		}
+		defer runtime.Close()
+		if err := runtime.CleanupDemoData(ctx); err != nil {
+			log.Fatal(err)
+		}
+		log.Printf("demo data cleaned")
+		return
+	}
+
 	server, err := app.NewServer(ctx, cfg)
 	if err != nil {
 		log.Fatal(err)

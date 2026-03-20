@@ -1,5 +1,6 @@
 import type { ErrorComponentProps } from '@tanstack/react-router'
 import { clearToken } from '../lib/api'
+import { appUrl } from '../lib/basePath'
 
 export function RouterErrorView({ error }: ErrorComponentProps) {
   const message = error instanceof Error ? error.message : 'Неизвестная ошибка маршрутизации'
@@ -17,7 +18,7 @@ export function RouterErrorView({ error }: ErrorComponentProps) {
           <button
             onClick={() => {
               clearToken()
-              window.location.href = '/login'
+              window.location.href = appUrl('/login')
             }}
             className="rounded-[10px] bg-[#252525] px-5 py-3 text-sm font-medium uppercase tracking-[0.15em] text-[#fbfbfb] transition hover:bg-[#343434]"
           >

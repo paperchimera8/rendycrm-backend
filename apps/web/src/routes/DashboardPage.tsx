@@ -8,7 +8,7 @@ import { PageHeader } from '../components/PageHeader'
 import { Section } from '../components/Section'
 import { Badge } from '../components/ui/badge'
 import { useActionRunner } from '../lib/actions'
-import { useAnalytics, useAvailableSlots, useBookings, useConversations, useSimulateWebhookMutation } from '../lib/queries'
+import { useAnalytics, useAvailableSlots, useBookings, useConversations } from '../lib/queries'
 import type { Booking, Conversation, DailySlot } from '../lib/types'
 import { useUIStore } from '../stores/ui'
 
@@ -90,7 +90,6 @@ export function DashboardPage() {
   const bookings = useBookings('all')
   const analytics = useAnalytics()
   const availableSlots = useAvailableSlots(todayLocal(), addDaysLocal(14))
-  const simulateWebhook = useSimulateWebhookMutation()
   const setSelectedConversationId = useUIStore((state) => state.setSelectedConversationId)
   const setDialogFilter = useUIStore((state) => state.setDialogFilter)
   const { runAction, isPending } = useActionRunner()
@@ -215,17 +214,6 @@ export function DashboardPage() {
     })
   }
 
-  const onCreateTestLead = async () => {
-    await runAction({
-      key: 'dashboard-create-lead',
-      event: 'dashboard_create_test_lead',
-      execute: () => simulateWebhook.mutateAsync({ provider: 'telegram', customerName: 'Лид с дашборда', text: 'Нужна запись на ближайшее свободное окно' }),
-      successMessage: 'Тестовый лид создан с дашборда.',
-      invalidateKeys: [['conversations'], ['dashboard']],
-      telemetry: { screen: 'dashboard' }
-    })
-  }
-
   const openInbox = async () => {
     setDialogFilter('all')
     const first = stats.waitingConversations[0] ?? conversationItems[0]
@@ -285,7 +273,7 @@ export function DashboardPage() {
               ))}
             </div>
           ) : (
-            <EmptyState title="Нет обращений без ответа" description="" actions={<ActionButton variant="secondary" onClick={() => void onCreateTestLead()}>Тест лид</ActionButton>} />
+            <EmptyState title="Нет обращений без ответа" description="" />
           )}
         </Section>
 
