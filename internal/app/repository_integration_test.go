@@ -163,6 +163,42 @@ func TestAvailableDaySlotsPreferMaterializedDailySlotsOverComputedWindows(t *tes
 	}
 }
 
+func TestAvailableDaySlotsFallbackUsesNinetyMinuteCadenceWithoutBookings(t *testing.T) {
+	repo, db, workspaceID, _, cleanup := newIntegrationRepository(t, "Europe/Moscow")
+	defer cleanup()
+
+	loc := mustLocation(t, "Europe/Moscow")
+	targetDay := time.Date(2026, 3, 9, 0, 0, 0, 0, loc)
+	setWorkRule(t, db, workspaceID, int(targetDay.Weekday()), 10*60, 16*60)
+
+	from := targetDay.UTC()
+	to := targetDay.Add(24 * time.Hour).UTC()
+
+	available, err := repo.AvailableDaySlots(context.Background(), workspaceID, from, to)
+	if err != nil {
+		t.Fatalf("available slots: %v", err)
+	}
+	if len(available) != 4 {
+		t.Fatalf("expected 4 fallback slots, got %d: %+v", len(available), available)
+	}
+
+	wantStarts := []time.Time{
+		time.Date(2026, 3, 9, 10, 0, 0, 0, loc).UTC(),
+		time.Date(2026, 3, 9, 11, 30, 0, 0, loc).UTC(),
+		time.Date(2026, 3, 9, 13, 0, 0, 0, loc).UTC(),
+		time.Date(2026, 3, 9, 14, 30, 0, 0, loc).UTC(),
+	}
+	for index, startsAt := range wantStarts {
+		slot := available[index]
+		if !slot.StartsAt.Equal(startsAt) {
+			t.Fatalf("slot %d starts at %s, want %s", index, slot.StartsAt, startsAt)
+		}
+		if got := int(slot.EndsAt.Sub(slot.StartsAt).Minutes()); got != 90 {
+			t.Fatalf("slot %d duration %d, want 90", index, got)
+		}
+	}
+}
+
 func TestEnsureSlotSystemMaterializesLegacyAvailabilityIntoDailySlots(t *testing.T) {
 	repo, db, workspaceID, _, cleanup := newIntegrationRepository(t, "Europe/Moscow")
 	defer cleanup()
@@ -246,6 +282,26 @@ func TestEnsureSlotSystemMaterializesLegacyAvailabilityWithHourlyCadence(t *test
 		if !containsWindow(daySlots, wantStart, wantEnd) {
 			t.Fatalf("expected slot %s-%s in materialized day slots, got %+v", wantStart, wantEnd, daySlots)
 		}
+	}
+}
+
+func TestWeekSlotsFallbackToComputedAvailabilityWhenDailySlotsAbsent(t *testing.T) {
+	repo, db, workspaceID, _, cleanup := newIntegrationRepository(t, "Europe/Moscow")
+	defer cleanup()
+
+	loc := mustLocation(t, "Europe/Moscow")
+	targetDay := time.Date(2026, 3, 9, 0, 0, 0, 0, loc)
+	setWorkRule(t, db, workspaceID, int(targetDay.Weekday()), 10*60, 16*60)
+
+	days, err := repo.WeekSlots(context.Background(), workspaceID, targetDay.UTC())
+	if err != nil {
+		t.Fatalf("week slots: %v", err)
+	}
+
+	firstStart := time.Date(2026, 3, 9, 10, 0, 0, 0, loc).UTC()
+	firstEnd := firstStart.Add(90 * time.Minute)
+	if match := findSlotInWeek(days, firstStart, firstEnd); match == nil {
+		t.Fatalf("expected computed week slot %s-%s", firstStart, firstEnd)
 	}
 }
 

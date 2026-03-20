@@ -84,6 +84,13 @@ func (r *Repository) WeekSlots(ctx context.Context, workspaceID string, day time
 	if err != nil {
 		return nil, err
 	}
+	if len(items) == 0 {
+		fallback, err := r.AvailableDaySlots(ctx, workspaceID, start.UTC(), end.AddDate(0, 0, 1).UTC())
+		if err != nil {
+			return nil, err
+		}
+		items = fallback
+	}
 	slotsByDate := make(map[string][]DailySlot, 7)
 	for _, item := range items {
 		slotsByDate[item.SlotDate] = append(slotsByDate[item.SlotDate], item)
@@ -510,6 +517,9 @@ func (r *Repository) AvailableDaySlots(ctx context.Context, workspaceID string, 
 	if err != nil {
 		return nil, err
 	}
+	durationMinutes := computedFallbackDurationMinutes(settings, bookings)
+	step := time.Duration(durationMinutes) * time.Minute
+	slotDuration := time.Duration(durationMinutes) * time.Minute
 	loc, err := time.LoadLocation(settings.Timezone)
 	if err != nil {
 		loc = time.UTC
@@ -532,8 +542,8 @@ func (r *Repository) AvailableDaySlots(ctx context.Context, workspaceID string, 
 			}
 			windowStart := day.Add(time.Duration(rule.StartMinute) * time.Minute)
 			windowEnd := day.Add(time.Duration(rule.EndMinute) * time.Minute)
-			for slotStart := windowStart; !slotStart.Add(time.Hour).After(windowEnd); slotStart = slotStart.Add(time.Hour) {
-				slotEnd := slotStart.Add(time.Hour)
+			for slotStart := windowStart; !slotStart.Add(slotDuration).After(windowEnd); slotStart = slotStart.Add(step) {
+				slotEnd := slotStart.Add(slotDuration)
 				if !slotAvailable(slotStart, slotEnd, exceptions, bookings, holds) {
 					continue
 				}
@@ -551,7 +561,7 @@ func (r *Repository) AvailableDaySlots(ctx context.Context, workspaceID string, 
 					SlotDate:         slotDate,
 					StartsAt:         slotStart.UTC(),
 					EndsAt:           slotEnd.UTC(),
-					DurationMinutes:  60,
+					DurationMinutes:  durationMinutes,
 					ColorPresetID:    "",
 					ColorName:        "",
 					ColorHex:         "#CBD5E1",
@@ -573,6 +583,17 @@ func (r *Repository) AvailableDaySlots(ctx context.Context, workspaceID string, 
 		return items[i].StartsAt.Before(items[j].StartsAt)
 	})
 	return filterAvailableDailySlots(items, from, to), nil
+}
+
+func computedFallbackDurationMinutes(settings SlotSettings, bookings []Booking) int {
+	durationMinutes := settings.DefaultDurationMinutes
+	if durationMinutes <= 0 {
+		durationMinutes = 60
+	}
+	if len(bookings) == 0 && durationMinutes < 90 {
+		return 90
+	}
+	return durationMinutes
 }
 
 func filterAvailableDailySlots(slots []DailySlot, from, to time.Time) []DailySlot {
