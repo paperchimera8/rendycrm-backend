@@ -126,3 +126,38 @@ func TestTelegramButtonLabelReminderToggleUsesPosition(t *testing.T) {
 		t.Fatalf("unexpected reminder off label: got %q want %q", got, want)
 	}
 }
+
+func TestOperatorMainMenuButtonsIncludeReminders(t *testing.T) {
+	buttons := operatorMainMenuButtons()
+	for _, button := range buttons {
+		if button == "/reminders" {
+			return
+		}
+	}
+	t.Fatalf("expected /reminders in operator main menu buttons, got %v", buttons)
+}
+
+func TestHandleOperatorCommandStartReturnsRemindersButton(t *testing.T) {
+	server := &Server{}
+	responses, err := server.handleOperatorCommand(context.Background(), OperatorBotBinding{
+		WorkspaceID:     "ws_test",
+		UserID:          "usr_test",
+		TelegramChatID:  "123",
+	}, "/start")
+	if err != nil {
+		t.Fatalf("handleOperatorCommand(/start): %v", err)
+	}
+	if len(responses) != 1 {
+		t.Fatalf("expected single response, got %d", len(responses))
+	}
+	found := false
+	for _, button := range responses[0].Buttons {
+		if button == "/reminders" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("expected /reminders button, got %v", responses[0].Buttons)
+	}
+}

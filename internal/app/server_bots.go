@@ -261,6 +261,12 @@ func (s *Server) handleOperatorCommand(ctx context.Context, binding OperatorBotB
 	command := strings.TrimSpace(text)
 	actor := domain.Actor{Kind: domain.ActorOperatorBot, WorkspaceID: binding.WorkspaceID, UserID: binding.UserID}
 	switch {
+	case command == "/start":
+		return []BotOutboundMessage{{
+			ChatID:  binding.TelegramChatID,
+			Text:    "Главное меню оператора. Выберите раздел.",
+			Buttons: operatorMainMenuButtons(),
+		}}, nil
 	case command == "/dashboard" || command == "📊 Дашборд":
 		dashboard, err := s.runtime.repository.Dashboard(ctx, binding.WorkspaceID)
 		if err != nil {
@@ -289,7 +295,7 @@ func (s *Server) handleOperatorCommand(ctx context.Context, binding OperatorBotB
 			0,
 			nextSlot,
 		)
-		return []BotOutboundMessage{{ChatID: binding.TelegramChatID, Text: text, Buttons: []string{"/dialogs", "/slots", "/reminders", "/settings"}}}, nil
+		return []BotOutboundMessage{{ChatID: binding.TelegramChatID, Text: text, Buttons: operatorMainMenuButtons()}}, nil
 	case command == "/dialogs" || command == "💬 Диалоги" || command == "🔥 Новые":
 		conversations, err := s.runtime.repository.Conversations(ctx, binding.WorkspaceID)
 		if err != nil {
@@ -475,8 +481,16 @@ func (s *Server) handleOperatorCommand(ctx context.Context, binding OperatorBotB
 		}
 		return s.handleOperatorReminderMenu(ctx, binding)
 	default:
-		return []BotOutboundMessage{{ChatID: binding.TelegramChatID, Text: "Доступные команды: /dashboard, /dialogs, /slots, /reminders, /settings, /faq."}}, nil
+		return []BotOutboundMessage{{
+			ChatID:  binding.TelegramChatID,
+			Text:    "Доступные команды: /dashboard, /dialogs, /slots, /reminders, /settings, /faq.",
+			Buttons: operatorMainMenuButtons(),
+		}}, nil
 	}
+}
+
+func operatorMainMenuButtons() []string {
+	return []string{"/dashboard", "/dialogs", "/slots", "/reminders", "/settings"}
 }
 
 func (s *Server) handleTelegramClientWebhook(w http.ResponseWriter, r *http.Request, channelAccountID, secret string) {
